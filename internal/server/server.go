@@ -27,6 +27,7 @@ type routeProxy struct {
 	proxy  *httputil.ReverseProxy
 }
 
+// Run starts the HTTP and HTTPS reverse proxy servers and handles SIGHUP reloads.
 func Run(opts app.RunOptions) error {
 	if os.Geteuid() == 0 {
 		return fmt.Errorf("httpsd must not run as root; remediate by running as user %q", opts.RunUser)

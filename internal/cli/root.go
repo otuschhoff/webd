@@ -9,6 +9,7 @@ import (
 	"httpsd/internal/setup"
 )
 
+// Execute builds the CLI command tree and runs the selected command.
 func Execute() error {
 	runOpts := app.DefaultRunOptions()
 	setupOpts := app.DefaultSetupOptions()

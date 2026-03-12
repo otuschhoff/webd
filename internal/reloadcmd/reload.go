@@ -11,6 +11,7 @@ import (
 	"syscall"
 )
 
+// Run locates running httpsd processes and sends them SIGHUP for in-place reload.
 func Run() error {
 	pids, err := findHTTPSDPIDs()
 	if err != nil {

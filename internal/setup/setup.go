@@ -38,6 +38,8 @@ type groupEntry struct {
 	members []string
 }
 
+// Run prepares the host for httpsd by creating accounts, fixing permissions,
+// installing capabilities, provisioning config, and updating the systemd unit.
 func Run(opts app.SetupOptions) error {
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("setup must be run as root because it modifies /etc/passwd, /etc/group, file ownership/permissions, Linux file capabilities (setcap), and systemd unit files")

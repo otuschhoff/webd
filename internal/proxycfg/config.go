@@ -10,15 +10,20 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Route maps a URL path prefix to an upstream base URL.
 type Route struct {
+	// PathPrefix is matched against the incoming request path.
 	PathPrefix string `yaml:"path_prefix"`
+	// Upstream is the absolute HTTP or HTTPS upstream base URL.
 	Upstream   string `yaml:"upstream"`
 }
 
+// Config is the root YAML configuration for reverse-proxy routes.
 type Config struct {
 	Routes []Route `yaml:"routes"`
 }
 
+// Load reads, parses, and validates a YAML configuration file.
 func Load(path string) (*Config, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -36,6 +41,7 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+// Validate checks that the configuration contains valid route definitions.
 func Validate(cfg *Config) error {
 	if len(cfg.Routes) == 0 {
 		return fmt.Errorf("config must contain at least one route")
@@ -58,6 +64,7 @@ func Validate(cfg *Config) error {
 	return nil
 }
 
+// PrettyYAML renders the configuration back to normalized YAML.
 func PrettyYAML(cfg *Config) (string, error) {
 	pretty, err := yaml.Marshal(cfg)
 	if err != nil {
@@ -66,6 +73,7 @@ func PrettyYAML(cfg *Config) (string, error) {
 	return string(pretty), nil
 }
 
+// ColorizeYAML applies ANSI color to YAML output when enabled.
 func ColorizeYAML(in string, useColor bool) string {
 	if !useColor {
 		return in
