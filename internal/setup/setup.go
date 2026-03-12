@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -75,6 +76,10 @@ func Run(opts app.SetupOptions) error {
 	}
 	if membershipChanged {
 		fmt.Println("added user httpsd to group tlskey")
+	}
+
+	if err := validateServiceIdentity("httpsd", "httpsd", "tlskey"); err != nil {
+		return err
 	}
 
 	if err := os.Chown(opts.TLSKeyPath, 0, tlskeyGID); err != nil {
@@ -561,6 +566,78 @@ func ensureUserInGroup(username, groupName string) (bool, error) {
 	}
 
 	return false, fmt.Errorf("group %s parse mismatch", groupName)
+}
+
+func validateServiceIdentity(username, primaryGroup, auxGroup string) error {
+	passwdLine, err := runGetent("passwd", username)
+	if err != nil {
+		return fmt.Errorf("service user validation failed: getent passwd %s: %w (run setup again and validate /etc/passwd with pwck)", username, err)
+	}
+	passParts := strings.Split(passwdLine, ":")
+	if len(passParts) != 7 {
+		return fmt.Errorf("service user validation failed: malformed passwd entry for %s: %q", username, passwdLine)
+	}
+
+	primaryGroupLine, err := runGetent("group", primaryGroup)
+	if err != nil {
+		return fmt.Errorf("service group validation failed: getent group %s: %w (validate /etc/group with grpck)", primaryGroup, err)
+	}
+	primaryGroupParts := strings.Split(primaryGroupLine, ":")
+	if len(primaryGroupParts) != 4 {
+		return fmt.Errorf("service group validation failed: malformed group entry for %s: %q", primaryGroup, primaryGroupLine)
+	}
+
+	if passParts[3] != primaryGroupParts[2] {
+		return fmt.Errorf("service identity mismatch: user %s has gid %s but group %s has gid %s", username, passParts[3], primaryGroup, primaryGroupParts[2])
+	}
+
+	auxGroupLine, err := runGetent("group", auxGroup)
+	if err != nil {
+		return fmt.Errorf("auxiliary group validation failed: getent group %s: %w", auxGroup, err)
+	}
+	auxParts := strings.Split(auxGroupLine, ":")
+	if len(auxParts) != 4 {
+		return fmt.Errorf("auxiliary group validation failed: malformed group entry for %s: %q", auxGroup, auxGroupLine)
+	}
+	members := map[string]struct{}{}
+	if auxParts[3] != "" {
+		for _, m := range strings.Split(auxParts[3], ",") {
+			members[strings.TrimSpace(m)] = struct{}{}
+		}
+	}
+	if _, ok := members[username]; !ok {
+		return fmt.Errorf("auxiliary group validation failed: user %s is not listed in %s", username, auxGroup)
+	}
+
+	if _, err := user.Lookup(username); err != nil {
+		return fmt.Errorf("nss lookup failed for user %s: %w", username, err)
+	}
+	if _, err := user.LookupGroup(primaryGroup); err != nil {
+		return fmt.Errorf("nss lookup failed for group %s: %w", primaryGroup, err)
+	}
+	if _, err := user.LookupGroup(auxGroup); err != nil {
+		return fmt.Errorf("nss lookup failed for group %s: %w", auxGroup, err)
+	}
+
+	fmt.Printf("validated service identity user=%s primary_group=%s auxiliary_group=%s\n", username, primaryGroup, auxGroup)
+	return nil
+}
+
+func runGetent(database, key string) (string, error) {
+	if _, err := exec.LookPath("getent"); err != nil {
+		return "", fmt.Errorf("getent not found in PATH")
+	}
+	cmd := exec.Command("getent", database, key)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+	}
+	line := strings.TrimSpace(string(out))
+	if line == "" {
+		return "", fmt.Errorf("no entry returned")
+	}
+	firstLine := strings.Split(line, "\n")[0]
+	return firstLine, nil
 }
 
 func readPasswdEntries() ([]passwdEntry, error) {
