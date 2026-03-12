@@ -40,17 +40,18 @@ After=network.target network-online.target
 Requires=network-online.target
 
 [Service]
-Type=exec
+Type=simple
 User=httpsd
 Group=httpsd
+PermissionsStartOnly=true
 SyslogIdentifier=httpsd
 StandardOutput=journal
 StandardError=journal
 RuntimeDirectory=httpsd
 RuntimeDirectoryMode=0750
-ExecStartPre=+/opt/httpsd/current/sbin/httpsd reload --prepare-only
+ExecStartPre=/opt/httpsd/current/sbin/httpsd reload --prepare-only
 ExecStart=/opt/httpsd/current/sbin/httpsd run
-ExecReload=+/opt/httpsd/current/sbin/httpsd reload
+ExecReload=/opt/httpsd/current/sbin/httpsd reload
 Restart=on-failure
 
 # Security: Give the binary permission to bind to ports 80/443
