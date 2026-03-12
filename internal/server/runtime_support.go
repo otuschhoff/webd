@@ -28,7 +28,7 @@ func newCertReloader(certPath, keyPath string) (*certReloader, error) {
 func (c *certReloader) Reload() error {
 	loaded, err := tls.LoadX509KeyPair(c.certPath, c.keyPath)
 	if err != nil {
-		return fmt.Errorf("load tls cert/key: %w", err)
+		return fmt.Errorf("load tls cert/key: %w (cert=%s key=%s; ensure cert PEM starts with the leaf certificate, followed by intermediates, and that the private key matches the leaf cert)", err, c.certPath, c.keyPath)
 	}
 	c.cert.Store(&loaded)
 	return nil
