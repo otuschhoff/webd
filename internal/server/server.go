@@ -179,6 +179,11 @@ func buildRouteProxies(cfg *proxycfg.Config) ([]routeProxy, error) {
 		}
 
 		proxy := httputil.NewSingleHostReverseProxy(u)
+		originalDirector := proxy.Director
+		proxy.Director = func(req *http.Request) {
+			originalDirector(req)
+			setForwardedHeaders(req)
+		}
 		proxy.Transport = newUpstreamTransport(pool)
 		proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, proxyErr error) {
 			http.Error(w, "Bad Gateway", http.StatusBadGateway)
@@ -193,6 +198,60 @@ func buildRouteProxies(cfg *proxycfg.Config) ([]routeProxy, error) {
 	})
 
 	return routes, nil
+}
+
+func setForwardedHeaders(req *http.Request) {
+	clientAddr := requestRemoteIP(req)
+	proto := requestScheme(req)
+	port := requestPort(req, proto)
+	host := req.Host
+
+	req.Header.Set("X-Real-IP", clientAddr)
+	req.Header.Set("X-Forwarded-Host", host)
+	req.Header.Set("X-Forwarded-Proto", proto)
+	req.Header.Set("X-Forwarded-Port", port)
+
+	forwardedValue := fmt.Sprintf("for=%s;host=%q;proto=%s", formatForwardedFor(clientAddr), host, proto)
+	if existing := strings.TrimSpace(req.Header.Get("Forwarded")); existing != "" {
+		req.Header.Set("Forwarded", existing+", "+forwardedValue)
+		return
+	}
+	req.Header.Set("Forwarded", forwardedValue)
+}
+
+func requestRemoteIP(req *http.Request) string {
+	host, _, err := net.SplitHostPort(req.RemoteAddr)
+	if err != nil {
+		return req.RemoteAddr
+	}
+	return host
+}
+
+func requestScheme(req *http.Request) string {
+	if req.TLS != nil {
+		return "https"
+	}
+	return "http"
+}
+
+func requestPort(req *http.Request, proto string) string {
+	if _, port, err := net.SplitHostPort(req.Host); err == nil && port != "" {
+		return port
+	}
+
+	switch proto {
+	case "https":
+		return "443"
+	default:
+		return "80"
+	}
+}
+
+func formatForwardedFor(ip string) string {
+	if strings.Contains(ip, ":") {
+		return fmt.Sprintf("\"[%s]\"", ip)
+	}
+	return fmt.Sprintf("\"%s\"", ip)
 }
 
 func clientIP(r *http.Request) string {

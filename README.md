@@ -86,6 +86,7 @@ Runtime behavior highlights:
 - TLS cert/key and routes are reloaded in-process on `SIGHUP`.
 - DNS upstream hostnames are refreshed ahead of TTL expiry; failed refreshes keep the last working IP set and retry with exponential backoff.
 - Multi-IP DNS answers are probed and each request randomly picks one healthy upstream IP.
+- Upstream requests include standard proxy headers such as `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port`, `X-Real-IP`, and `Forwarded`.
 - Root execution for `run` is blocked.
 - Non-root run user is enforced unless `--force` is set.
 
