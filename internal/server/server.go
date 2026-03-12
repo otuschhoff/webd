@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"os/user"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,7 +29,11 @@ type routeProxy struct {
 
 func Run(opts app.RunOptions) error {
 	if os.Geteuid() == 0 {
-		return fmt.Errorf("httpsd must not run as root; remediate by running as user 'httpsd'")
+		return fmt.Errorf("httpsd must not run as root; remediate by running as user %q", opts.RunUser)
+	}
+
+	if err := enforceRuntimeUser(opts); err != nil {
+		return err
 	}
 
 	cfg, err := proxycfg.Load(opts.ConfigPath)
@@ -128,6 +133,28 @@ func Run(opts app.RunOptions) error {
 	}()
 
 	return <-errCh
+}
+
+func enforceRuntimeUser(opts app.RunOptions) error {
+	expected := strings.TrimSpace(opts.RunUser)
+	if expected == "" {
+		return fmt.Errorf("run-user cannot be empty")
+	}
+
+	if opts.Force {
+		return nil
+	}
+
+	current, err := user.LookupId(strconv.Itoa(os.Geteuid()))
+	if err != nil {
+		return fmt.Errorf("resolve current user: %w", err)
+	}
+
+	if current.Username != expected {
+		return fmt.Errorf("refusing to run as user %q; expected %q (use --force to override)", current.Username, expected)
+	}
+
+	return nil
 }
 
 func buildRouteProxies(cfg *proxycfg.Config) ([]routeProxy, error) {

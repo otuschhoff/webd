@@ -5,6 +5,7 @@ const (
 	DefaultTLSCertPath  = "/etc/pki/tls/certs/selfcrt"
 	DefaultTLSKeyPath   = "/etc/pki/tls/private/self.key"
 	DefaultAccessLog    = "/var/log/httpsd/access.log"
+	DefaultRunUser      = "httpsd"
 	DefaultHTTPAddr     = ":80"
 	DefaultHTTPSAddr    = ":443"
 	DefaultServicePath  = "/etc/systemd/system/httpsd.service"
@@ -44,6 +45,8 @@ type RunOptions struct {
 	TLSCertPath   string
 	TLSKeyPath    string
 	AccessLogPath string
+	RunUser       string
+	Force         bool
 }
 
 type SetupOptions struct {
@@ -59,6 +62,8 @@ func DefaultRunOptions() RunOptions {
 		TLSCertPath:   DefaultTLSCertPath,
 		TLSKeyPath:    DefaultTLSKeyPath,
 		AccessLogPath: DefaultAccessLog,
+		RunUser:       DefaultRunUser,
+		Force:         false,
 	}
 }
 
