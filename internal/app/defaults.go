@@ -90,6 +90,8 @@ type SetupOptions struct {
 	ServicePath string
 	// BinaryPath is the installed httpsd binary path used for capability setup.
 	BinaryPath string
+	// Force allows setup to overwrite an existing, non-matching systemd unit file.
+	Force bool
 }
 
 // DefaultRunOptions returns the runtime defaults used by the root and run commands.
@@ -113,5 +115,6 @@ func DefaultSetupOptions() SetupOptions {
 		TLSKeyPath:  DefaultTLSKeyPath,
 		ServicePath: DefaultServicePath,
 		BinaryPath:  DefaultBinaryPath,
+		Force:       false,
 	}
 }

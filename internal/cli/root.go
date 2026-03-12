@@ -78,6 +78,7 @@ func Execute() error {
 	setupCmd.Flags().StringVar(&setupOpts.TLSCertPath, "tls-cert", setupOpts.TLSCertPath, "TLS certificate path for permission setup")
 	setupCmd.Flags().StringVar(&setupOpts.ServicePath, "service-path", setupOpts.ServicePath, "Systemd unit file path")
 	setupCmd.Flags().StringVar(&setupOpts.BinaryPath, "binary", setupOpts.BinaryPath, "httpsd binary path for setcap configuration")
+	setupCmd.Flags().BoolVar(&setupOpts.Force, "force", setupOpts.Force, "Allow overwriting an existing non-matching systemd unit file")
 
 	rootCmd.AddCommand(runCmd, reloadCmd, checkCmd, setupCmd)
 	return rootCmd.Execute()

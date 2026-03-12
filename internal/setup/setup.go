@@ -85,21 +85,13 @@ func Run(opts app.SetupOptions) error {
 		return err
 	}
 
-	if err := os.Chown(opts.TLSKeyPath, 0, tlskeyGID); err != nil {
-		return fmt.Errorf("set owner root:tlskey on %s: %w", opts.TLSKeyPath, err)
+	if _, err := os.Stat(opts.TLSKeyPath); err != nil {
+		return fmt.Errorf("verify TLS key %s: %w", opts.TLSKeyPath, err)
 	}
-	if err := os.Chmod(opts.TLSKeyPath, 0o640); err != nil {
-		return fmt.Errorf("set mode 0640 on %s: %w", opts.TLSKeyPath, err)
+	if _, err := os.Stat(opts.TLSCertPath); err != nil {
+		return fmt.Errorf("verify TLS cert %s: %w", opts.TLSCertPath, err)
 	}
-	fmt.Printf("set TLS key ownership and mode on %s\n", opts.TLSKeyPath)
-
-	if err := os.Chown(opts.TLSCertPath, 0, tlskeyGID); err != nil {
-		return fmt.Errorf("set owner root:tlskey on %s: %w", opts.TLSCertPath, err)
-	}
-	if err := os.Chmod(opts.TLSCertPath, 0o644); err != nil {
-		return fmt.Errorf("set mode 0644 on %s: %w", opts.TLSCertPath, err)
-	}
-	fmt.Printf("set TLS cert ownership and mode on %s\n", opts.TLSCertPath)
+	fmt.Printf("verified TLS cert/key paths exist without changing ownership/perms cert=%s key=%s\n", opts.TLSCertPath, opts.TLSKeyPath)
 
 	if err := ensureEtcConfig(httpsdGroup); err != nil {
 		return err
@@ -129,7 +121,7 @@ func Run(opts app.SetupOptions) error {
 	}
 	fmt.Printf("ensured Linux capability cap_net_bind_service=+ep on %s\n", opts.BinaryPath)
 
-	serviceChanged, err := ensureSystemdUnit(opts.ServicePath, app.ServiceUnitContent)
+	serviceChanged, err := ensureSystemdUnit(opts.ServicePath, app.ServiceUnitContent, opts.Force)
 	if err != nil {
 		return err
 	}
@@ -179,11 +171,14 @@ func ensureEtcConfig(httpsdGroup int) error {
 	return nil
 }
 
-func ensureSystemdUnit(path, desired string) (bool, error) {
+func ensureSystemdUnit(path, desired string, force bool) (bool, error) {
 	existing, err := os.ReadFile(path)
 	if err == nil {
 		if string(existing) == desired {
 			return false, nil
+		}
+		if !force {
+			return false, fmt.Errorf("systemd unit %s differs from required defaults; rerun setup with --force to overwrite it", path)
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return false, fmt.Errorf("read systemd unit %s: %w", path, err)
