@@ -273,6 +273,10 @@ func buildVersionDirName() (string, error) {
 	if baseVersion == "" || baseVersion == "unknown" {
 		return "", fmt.Errorf("application version is not set; cannot manage versioned install path")
 	}
+	baseVersion = strings.TrimPrefix(baseVersion, "v")
+	if baseVersion == "" {
+		return "", fmt.Errorf("application version %q is invalid for install path", app.Version)
+	}
 
 	buildTimeRaw := strings.TrimSpace(app.BuildTime)
 	if buildTimeRaw == "" || buildTimeRaw == "unknown" {
