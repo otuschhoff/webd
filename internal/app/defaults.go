@@ -51,6 +51,7 @@ type RunOptions struct {
 }
 
 type SetupOptions struct {
+	TLSCertPath string
 	TLSKeyPath  string
 	ServicePath string
 	BinaryPath  string
@@ -71,6 +72,7 @@ func DefaultRunOptions() RunOptions {
 
 func DefaultSetupOptions() SetupOptions {
 	return SetupOptions{
+		TLSCertPath: DefaultTLSCertPath,
 		TLSKeyPath:  DefaultTLSKeyPath,
 		ServicePath: DefaultServicePath,
 		BinaryPath:  DefaultBinaryPath,

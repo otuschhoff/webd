@@ -70,6 +70,14 @@ func Run(opts app.SetupOptions) error {
 	}
 	fmt.Printf("set TLS key ownership and mode on %s\n", opts.TLSKeyPath)
 
+	if err := os.Chown(opts.TLSCertPath, 0, tlskeyGID); err != nil {
+		return fmt.Errorf("set owner root:tlskey on %s: %w", opts.TLSCertPath, err)
+	}
+	if err := os.Chmod(opts.TLSCertPath, 0o640); err != nil {
+		return fmt.Errorf("set mode 0640 on %s: %w", opts.TLSCertPath, err)
+	}
+	fmt.Printf("set TLS cert ownership and mode on %s\n", opts.TLSCertPath)
+
 	if err := os.MkdirAll("/var/log/httpsd", 0o750); err != nil {
 		return fmt.Errorf("create /var/log/httpsd: %w", err)
 	}
