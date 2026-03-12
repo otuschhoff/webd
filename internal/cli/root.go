@@ -31,7 +31,7 @@ func Execute() error {
 	rootCmd.PersistentFlags().StringVar(&runOpts.TLSKeyPath, "tls-key", runOpts.TLSKeyPath, "TLS private key file")
 	rootCmd.PersistentFlags().StringVar(&runOpts.AccessLogPath, "access-log", runOpts.AccessLogPath, "Access log path")
 	rootCmd.PersistentFlags().StringVar(&runOpts.RunUser, "run-user", runOpts.RunUser, "Expected runtime user for the server process")
-	rootCmd.PersistentFlags().BoolVar(&runOpts.Force, "force", runOpts.Force, "Allow running as a user other than --run-user")
+	rootCmd.Flags().BoolVar(&runOpts.Force, "force", runOpts.Force, "Allow running as a user other than --run-user")
 
 	runCmd := &cobra.Command{
 		Use:   "run",
@@ -40,6 +40,7 @@ func Execute() error {
 			return server.Run(runOpts)
 		},
 	}
+	runCmd.Flags().BoolVar(&runOpts.Force, "force", runOpts.Force, "Allow running as a user other than --run-user")
 
 	reloadCmd := &cobra.Command{
 		Use:   "reload",
@@ -68,8 +69,10 @@ func Execute() error {
 	}
 
 	setupCmd := &cobra.Command{
-		Use:   "setup",
-		Short: "Prepare system user/group, permissions, and service unit",
+		Use:           "setup",
+		Short:         "Prepare system user/group, permissions, and service unit",
+		SilenceUsage:  true,
+		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return setup.Run(setupOpts)
 		},
