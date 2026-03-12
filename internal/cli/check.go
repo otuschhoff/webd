@@ -25,6 +25,11 @@ type portProcessInfo struct {
 	StartedAt      string
 }
 
+type checkResult struct {
+	okLines   []string
+	failLines []string
+}
+
 func runCheck(opts app.RunOptions) error {
 	cfg, err := proxycfg.Load(opts.ConfigPath)
 	if err != nil {
@@ -40,17 +45,22 @@ func runCheck(opts app.RunOptions) error {
 	checkErrs := make([]string, 0)
 
 	fmt.Println("-- port availability --")
-	if err := checkBindPort("http", opts.HTTPAddr); err != nil {
-		checkErrs = append(checkErrs, err.Error())
-	}
-	if err := checkBindPort("https", opts.HTTPSAddr); err != nil {
-		checkErrs = append(checkErrs, err.Error())
+	for _, result := range []checkResult{
+		checkBindPort("http", opts.HTTPAddr),
+		checkBindPort("https", opts.HTTPSAddr),
+	} {
+		for _, line := range result.okLines {
+			fmt.Println(line)
+		}
+		checkErrs = append(checkErrs, result.failLines...)
 	}
 
 	fmt.Println("-- upstream reachability --")
-	if err := checkUpstreams(cfg); err != nil {
-		checkErrs = append(checkErrs, err.Error())
+	upstreamResults := checkUpstreams(cfg)
+	for _, line := range upstreamResults.okLines {
+		fmt.Println(line)
 	}
+	checkErrs = append(checkErrs, upstreamResults.failLines...)
 
 	if len(checkErrs) > 0 {
 		return fmt.Errorf("check failed:\n- %s", strings.Join(checkErrs, "\n- "))
@@ -59,7 +69,7 @@ func runCheck(opts app.RunOptions) error {
 	return nil
 }
 
-func checkBindPort(label, addr string) error {
+func checkBindPort(label, addr string) checkResult {
 	// Check existing listeners via /proc rather than bind attempts, so low ports can
 	// be checked by non-root users without permission-denied false positives.
 	_, portStr, splitErr := net.SplitHostPort(addr)
@@ -68,28 +78,27 @@ func checkBindPort(label, addr string) error {
 	}
 	port, convErr := strconv.Atoi(portStr)
 	if convErr != nil {
-		return fmt.Errorf("%s %s: port parse failed: %v", label, addr, convErr)
+		return checkResult{failLines: []string{fmt.Sprintf("%s %s: port parse failed: %v", label, addr, convErr)}}
 	}
 
 	infos, lookupErr := findPortOwners(port)
 	if lookupErr != nil {
-		return fmt.Errorf("%s %s: owner lookup failed: %v", label, addr, lookupErr)
+		return checkResult{failLines: []string{fmt.Sprintf("%s %s: owner lookup failed: %v", label, addr, lookupErr)}}
 	}
 	if len(infos) == 0 {
-		fmt.Printf("%s %s: free\n", label, addr)
-		return nil
+		return checkResult{okLines: []string{fmt.Sprintf("%s %s: free", label, addr)}}
 	}
 
-	fmt.Printf("%s %s: in use\n", label, addr)
+	failLines := []string{fmt.Sprintf("%s %s is already bound", label, addr)}
 	for _, info := range infos {
-		fmt.Printf("  pid=%d exe=%s systemd=%s started=%s\n", info.PID, info.ExePath, info.SystemdService, info.StartedAt)
+		failLines = append(failLines, fmt.Sprintf("%s %s owner: pid=%d exe=%s systemd=%s started=%s", label, addr, info.PID, info.ExePath, info.SystemdService, info.StartedAt))
 	}
-	return fmt.Errorf("%s %s is already bound", label, addr)
+	return checkResult{failLines: failLines}
 }
 
-func checkUpstreams(cfg *proxycfg.Config) error {
+func checkUpstreams(cfg *proxycfg.Config) checkResult {
 	seen := make(map[string]struct{})
-	failed := make([]string, 0)
+	result := checkResult{}
 
 	for _, route := range cfg.Routes {
 		raw := strings.TrimSpace(route.Upstream)
@@ -103,7 +112,7 @@ func checkUpstreams(cfg *proxycfg.Config) error {
 
 		u, err := url.Parse(raw)
 		if err != nil {
-			failed = append(failed, fmt.Sprintf("%s parse error: %v", raw, err))
+			result.failLines = append(result.failLines, fmt.Sprintf("%s parse error: %v", raw, err))
 			continue
 		}
 
@@ -115,7 +124,7 @@ func checkUpstreams(cfg *proxycfg.Config) error {
 			case "https":
 				hostPort = net.JoinHostPort(u.Hostname(), "443")
 			default:
-				failed = append(failed, fmt.Sprintf("%s unsupported scheme %q", raw, u.Scheme))
+				result.failLines = append(result.failLines, fmt.Sprintf("%s unsupported scheme %q", raw, u.Scheme))
 				continue
 			}
 		}
@@ -124,29 +133,26 @@ func checkUpstreams(cfg *proxycfg.Config) error {
 		case "http":
 			conn, err := net.DialTimeout("tcp", hostPort, 3*time.Second)
 			if err != nil {
-				failed = append(failed, fmt.Sprintf("%s TCP handshake failed: %v", raw, err))
+				result.failLines = append(result.failLines, fmt.Sprintf("%s TCP handshake failed: %v", raw, err))
 				continue
 			}
 			_ = conn.Close()
-			fmt.Printf("upstream %s: TCP handshake OK\n", raw)
+			result.okLines = append(result.okLines, fmt.Sprintf("upstream %s: TCP handshake OK", raw))
 		case "https":
 			dialer := &net.Dialer{Timeout: 4 * time.Second}
 			conn, err := tls.DialWithDialer(dialer, "tcp", hostPort, &tls.Config{InsecureSkipVerify: true})
 			if err != nil {
-				failed = append(failed, fmt.Sprintf("%s TLS handshake failed: %v", raw, err))
+				result.failLines = append(result.failLines, fmt.Sprintf("%s TLS handshake failed: %v", raw, err))
 				continue
 			}
 			_ = conn.Close()
-			fmt.Printf("upstream %s: TLS handshake OK\n", raw)
+			result.okLines = append(result.okLines, fmt.Sprintf("upstream %s: TLS handshake OK", raw))
 		default:
-			failed = append(failed, fmt.Sprintf("%s unsupported scheme %q", raw, u.Scheme))
+			result.failLines = append(result.failLines, fmt.Sprintf("%s unsupported scheme %q", raw, u.Scheme))
 		}
 	}
 
-	if len(failed) > 0 {
-		return fmt.Errorf("upstream checks failed:\n  - %s", strings.Join(failed, "\n  - "))
-	}
-	return nil
+	return result
 }
 
 func findPortOwners(port int) ([]portProcessInfo, error) {

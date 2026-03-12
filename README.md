@@ -84,6 +84,8 @@ Runtime behavior highlights:
 
 - Access logs written to `/var/log/httpsd/access.log` with 1 MiB rotation.
 - TLS cert/key and routes are reloaded in-process on `SIGHUP`.
+- DNS upstream hostnames are refreshed ahead of TTL expiry; failed refreshes keep the last working IP set and retry with exponential backoff.
+- Multi-IP DNS answers are probed and each request randomly picks one healthy upstream IP.
 - Root execution for `run` is blocked.
 - Non-root run user is enforced unless `--force` is set.
 

@@ -172,8 +172,13 @@ func buildRouteProxies(cfg *proxycfg.Config) ([]routeProxy, error) {
 			return nil, fmt.Errorf("invalid upstream for prefix %q: %q", prefix, r.Upstream)
 		}
 		upstream := u.String()
+		pool, err := newUpstreamPool(u)
+		if err != nil {
+			return nil, fmt.Errorf("prepare upstream pool for prefix %q: %w", prefix, err)
+		}
 
 		proxy := httputil.NewSingleHostReverseProxy(u)
+		proxy.Transport = newUpstreamTransport(pool)
 		proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, proxyErr error) {
 			http.Error(w, "Bad Gateway", http.StatusBadGateway)
 			log.Printf("proxy_error upstream=%q path=%q err=%v", upstream, req.URL.Path, proxyErr)

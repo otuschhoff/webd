@@ -48,8 +48,10 @@ func Execute() error {
 	}
 
 	checkCmd := &cobra.Command{
-		Use:   "check",
-		Short: "Validate config and print it in pretty colored YAML",
+		Use:           "check",
+		Short:         "Validate config and print it in pretty colored YAML",
+		SilenceUsage:  true,
+		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runCheck(runOpts)
 		},
