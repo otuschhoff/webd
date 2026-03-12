@@ -105,21 +105,51 @@ func Run(opts app.SetupOptions) error {
 	}
 	fmt.Printf("ensured Linux capability cap_net_bind_service=+ep on %s\n", opts.BinaryPath)
 
-	serviceExists, err := systemdServiceExists("httpsd")
+	serviceChanged, err := ensureSystemdUnit(opts.ServicePath, app.ServiceUnitContent)
 	if err != nil {
 		return err
 	}
-	if !serviceExists {
-		if err := os.WriteFile(opts.ServicePath, []byte(app.ServiceUnitContent), 0o644); err != nil {
-			return fmt.Errorf("write systemd unit %s: %w", opts.ServicePath, err)
+	if serviceChanged {
+		fmt.Printf("updated systemd unit %s\n", opts.ServicePath)
+		if err := daemonReload(); err != nil {
+			return err
 		}
-		fmt.Printf("created systemd unit %s\n", opts.ServicePath)
+		fmt.Println("systemd daemon-reload completed")
 	} else {
-		fmt.Println("systemd service httpsd already exists")
+		fmt.Println("systemd service file is already up-to-date")
 	}
 
 	fmt.Println("setup complete")
-	fmt.Println("next step: run 'systemctl daemon-reload' if a new unit file was created")
+	return nil
+}
+
+func ensureSystemdUnit(path, desired string) (bool, error) {
+	existing, err := os.ReadFile(path)
+	if err == nil {
+		if string(existing) == desired {
+			return false, nil
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return false, fmt.Errorf("read systemd unit %s: %w", path, err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return false, fmt.Errorf("create systemd dir for %s: %w", path, err)
+	}
+	if err := os.WriteFile(path, []byte(desired), 0o644); err != nil {
+		return false, fmt.Errorf("write systemd unit %s: %w", path, err)
+	}
+	return true, nil
+}
+
+func daemonReload() error {
+	if _, err := exec.LookPath("systemctl"); err != nil {
+		return fmt.Errorf("systemctl not found in PATH; cannot run daemon-reload")
+	}
+	cmd := exec.Command("systemctl", "daemon-reload")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("systemctl daemon-reload failed: %v: %s", err, strings.TrimSpace(string(out)))
+	}
 	return nil
 }
 
@@ -478,24 +508,6 @@ func ensureUserInGroup(username, groupName string) (bool, error) {
 	}
 
 	return false, fmt.Errorf("group %s parse mismatch", groupName)
-}
-
-func systemdServiceExists(name string) (bool, error) {
-	paths := []string{
-		filepath.Join("/etc/systemd/system", name+".service"),
-		filepath.Join("/usr/lib/systemd/system", name+".service"),
-		filepath.Join("/lib/systemd/system", name+".service"),
-	}
-	for _, p := range paths {
-		_, err := os.Stat(p)
-		if err == nil {
-			return true, nil
-		}
-		if !errors.Is(err, os.ErrNotExist) {
-			return false, fmt.Errorf("stat %s: %w", p, err)
-		}
-	}
-	return false, nil
 }
 
 func readPasswdEntries() ([]passwdEntry, error) {
