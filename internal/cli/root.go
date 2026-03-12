@@ -13,6 +13,7 @@ import (
 func Execute() error {
 	runOpts := app.DefaultRunOptions()
 	setupOpts := app.DefaultSetupOptions()
+	reloadOpts := reloadcmd.DefaultOptions()
 
 	rootCmd := &cobra.Command{
 		Use:     "httpsd",
@@ -42,11 +43,19 @@ func Execute() error {
 
 	reloadCmd := &cobra.Command{
 		Use:   "reload",
-		Short: "Reload running httpsd instance(s)",
+		Short: "Stage TLS artifacts under /run and reload running httpsd",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return reloadcmd.Run()
+			reloadOpts.HTTPAddr = runOpts.HTTPAddr
+			reloadOpts.HTTPSAddr = runOpts.HTTPSAddr
+			reloadOpts.RunUser = runOpts.RunUser
+			reloadOpts.TLSCertDest = runOpts.TLSCertPath
+			reloadOpts.TLSKeyDest = runOpts.TLSKeyPath
+			return reloadcmd.Run(reloadOpts)
 		},
 	}
+	reloadCmd.Flags().StringVar(&reloadOpts.TLSCertSource, "tls-cert-source", reloadOpts.TLSCertSource, "Source TLS certificate path copied into runtime TLS path")
+	reloadCmd.Flags().StringVar(&reloadOpts.TLSKeySource, "tls-key-source", reloadOpts.TLSKeySource, "Source TLS private key path copied into runtime TLS path")
+	reloadCmd.Flags().BoolVar(&reloadOpts.PrepareOnly, "prepare-only", reloadOpts.PrepareOnly, "Only stage runtime TLS files without signaling running process")
 
 	checkCmd := &cobra.Command{
 		Use:           "check",

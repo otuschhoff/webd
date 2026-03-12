@@ -3,6 +3,9 @@ package app
 // DefaultConfigPath is the default YAML configuration file location.
 // DefaultTLSCertPath is the default TLS certificate bundle path.
 // DefaultTLSKeyPath is the default TLS private key path.
+// DefaultRuntimeTLSDir is the runtime directory used for staged TLS artifacts.
+// DefaultRuntimeTLSCertPath is the staged runtime TLS certificate path.
+// DefaultRuntimeTLSKeyPath is the staged runtime TLS private key path.
 // DefaultAccessLog is the default access log file path.
 // DefaultRunUser is the default non-root runtime account for the daemon.
 // DefaultHTTPAddr is the default HTTP listen address.
@@ -11,16 +14,19 @@ package app
 // DefaultServicePath is the default systemd unit file path.
 // AccessLogRotateSize is the log size threshold that triggers access log rotation.
 const (
-	DefaultConfigPath   = "/etc/httpsd/config.yaml"
-	DefaultTLSCertPath  = "/etc/pki/tls/certs/self.crt"
-	DefaultTLSKeyPath   = "/etc/pki/tls/private/self.key"
-	DefaultAccessLog    = "/var/log/httpsd/access.log"
-	DefaultRunUser      = "httpsd"
-	DefaultHTTPAddr     = ":80"
-	DefaultHTTPSAddr    = ":443"
-	DefaultBinaryPath   = "/opt/httpsd/current/sbin/httpsd"
-	DefaultServicePath  = "/etc/systemd/system/httpsd.service"
-	AccessLogRotateSize = int64(1 * 1024 * 1024)
+	DefaultConfigPath         = "/etc/httpsd/config.yaml"
+	DefaultTLSCertPath        = "/etc/pki/tls/certs/self.crt"
+	DefaultTLSKeyPath         = "/etc/pki/tls/private/self.key"
+	DefaultRuntimeTLSDir      = "/run/httpsd"
+	DefaultRuntimeTLSCertPath = "/run/httpsd/tls.crt"
+	DefaultRuntimeTLSKeyPath  = "/run/httpsd/tls.key"
+	DefaultAccessLog          = "/var/log/httpsd/access.log"
+	DefaultRunUser            = "httpsd"
+	DefaultHTTPAddr           = ":80"
+	DefaultHTTPSAddr          = ":443"
+	DefaultBinaryPath         = "/opt/httpsd/current/sbin/httpsd"
+	DefaultServicePath        = "/etc/systemd/system/httpsd.service"
+	AccessLogRotateSize       = int64(1 * 1024 * 1024)
 )
 
 // ServiceUnitContent is the desired systemd unit file content written by setup.
@@ -33,7 +39,11 @@ Requires=network-online.target
 Type=exec
 User=httpsd
 Group=httpsd
-ExecStart=/opt/httpsd/current/sbin/httpsd
+RuntimeDirectory=httpsd
+RuntimeDirectoryMode=0750
+ExecStartPre=+/opt/httpsd/current/sbin/httpsd reload --prepare-only --run-user httpsd --http-addr :80 --https-addr :443 --tls-cert-source /etc/pki/tls/certs/self.crt --tls-key-source /etc/pki/tls/private/self.key --tls-cert /run/httpsd/tls.crt --tls-key /run/httpsd/tls.key
+ExecStart=/opt/httpsd/current/sbin/httpsd run --tls-cert /run/httpsd/tls.crt --tls-key /run/httpsd/tls.key
+ExecReload=+/opt/httpsd/current/sbin/httpsd reload --run-user httpsd --http-addr :80 --https-addr :443 --tls-cert-source /etc/pki/tls/certs/self.crt --tls-key-source /etc/pki/tls/private/self.key --tls-cert /run/httpsd/tls.crt --tls-key /run/httpsd/tls.key
 Restart=on-failure
 
 # Security: Give the binary permission to bind to ports 80/443

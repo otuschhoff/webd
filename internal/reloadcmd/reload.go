@@ -1,24 +1,87 @@
 package reloadcmd
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"log"
+	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"syscall"
+
+	"httpsd/internal/app"
 )
 
+// Options controls root helper behavior for staging runtime TLS artifacts and
+// signaling running httpsd processes.
+type Options struct {
+	HTTPAddr      string
+	HTTPSAddr     string
+	RunUser       string
+	TLSCertSource string
+	TLSKeySource  string
+	TLSCertDest   string
+	TLSKeyDest    string
+	PrepareOnly   bool
+}
+
+// DefaultOptions returns defaults for the reload helper workflow.
+func DefaultOptions() Options {
+	return Options{
+		HTTPAddr:      app.DefaultHTTPAddr,
+		HTTPSAddr:     app.DefaultHTTPSAddr,
+		RunUser:       app.DefaultRunUser,
+		TLSCertSource: app.DefaultTLSCertPath,
+		TLSKeySource:  app.DefaultTLSKeyPath,
+		TLSCertDest:   app.DefaultRuntimeTLSCertPath,
+		TLSKeyDest:    app.DefaultRuntimeTLSKeyPath,
+		PrepareOnly:   false,
+	}
+}
+
 // Run locates running httpsd processes and sends them SIGHUP for in-place reload.
-func Run() error {
-	pids, err := findHTTPSDPIDs()
+func Run(opts Options) error {
+	if os.Geteuid() != 0 {
+		return fmt.Errorf("reload helper must run as root because it stages TLS artifacts under /run and updates ownership")
+	}
+
+	if err := validateRunTLSDirs(opts); err != nil {
+		return err
+	}
+
+	runUID, runGID, err := lookupRunUser(opts.RunUser)
 	if err != nil {
 		return err
 	}
-	if len(pids) == 0 {
-		return fmt.Errorf("no running httpsd process found")
+
+	var pids []int
+	if !opts.PrepareOnly {
+		pids, err = findHTTPSDPIDs()
+		if err != nil {
+			return err
+		}
+		if len(pids) == 0 {
+			return fmt.Errorf("no running httpsd process found")
+		}
+
+		if err := ensurePortsBoundByHTTPSD(opts.HTTPAddr, opts.HTTPSAddr, pids); err != nil {
+			return err
+		}
+	}
+
+	if err := stageTLSArtifacts(opts, runUID, runGID); err != nil {
+		return err
+	}
+	fmt.Printf("staged runtime TLS artifacts cert=%s key=%s owner=%s\n", opts.TLSCertDest, opts.TLSKeyDest, opts.RunUser)
+
+	if opts.PrepareOnly {
+		fmt.Println("prepare-only mode complete")
+		return nil
 	}
 
 	sent := 0
@@ -35,6 +98,217 @@ func Run() error {
 		return fmt.Errorf("could not signal any running httpsd process")
 	}
 	return nil
+}
+
+func validateRunTLSDirs(opts Options) error {
+	certDir := filepath.Clean(filepath.Dir(opts.TLSCertDest))
+	keyDir := filepath.Clean(filepath.Dir(opts.TLSKeyDest))
+	if certDir != keyDir {
+		return fmt.Errorf("runtime TLS destinations must share one directory: cert dir=%s key dir=%s", certDir, keyDir)
+	}
+	if _, err := os.Stat(certDir); err != nil {
+		return fmt.Errorf("runtime TLS directory does not exist: %s: %w", certDir, err)
+	}
+	if !strings.HasPrefix(certDir, "/run/") {
+		return fmt.Errorf("runtime TLS directory must be under /run: %s", certDir)
+	}
+	return nil
+}
+
+func lookupRunUser(name string) (uid int, gid int, err error) {
+	line, err := runGetent("passwd", name)
+	if err != nil {
+		return 0, 0, fmt.Errorf("resolve run user %s: %w", name, err)
+	}
+	parts := strings.Split(line, ":")
+	if len(parts) != 7 {
+		return 0, 0, fmt.Errorf("malformed passwd entry for %s: %q", name, line)
+	}
+	uid, err = strconv.Atoi(parts[2])
+	if err != nil {
+		return 0, 0, fmt.Errorf("parse uid for %s: %w", name, err)
+	}
+	gid, err = strconv.Atoi(parts[3])
+	if err != nil {
+		return 0, 0, fmt.Errorf("parse gid for %s: %w", name, err)
+	}
+	return uid, gid, nil
+}
+
+func runGetent(database, key string) (string, error) {
+	if _, err := exec.LookPath("getent"); err != nil {
+		return "", fmt.Errorf("getent not found in PATH")
+	}
+	out, err := exec.Command("getent", database, key).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+	}
+	line := strings.TrimSpace(string(out))
+	if line == "" {
+		return "", fmt.Errorf("no entry returned")
+	}
+	return strings.Split(line, "\n")[0], nil
+}
+
+func stageTLSArtifacts(opts Options, uid, gid int) error {
+	if err := copyFileAtomic(opts.TLSCertSource, opts.TLSCertDest, 0o640); err != nil {
+		return fmt.Errorf("stage tls cert: %w", err)
+	}
+	if err := os.Chown(opts.TLSCertDest, uid, gid); err != nil {
+		return fmt.Errorf("chown staged cert %s: %w", opts.TLSCertDest, err)
+	}
+
+	if err := copyFileAtomic(opts.TLSKeySource, opts.TLSKeyDest, 0o600); err != nil {
+		return fmt.Errorf("stage tls key: %w", err)
+	}
+	if err := os.Chown(opts.TLSKeyDest, uid, gid); err != nil {
+		return fmt.Errorf("chown staged key %s: %w", opts.TLSKeyDest, err)
+	}
+
+	return nil
+}
+
+func copyFileAtomic(src, dst string, mode os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	dir := filepath.Dir(dst)
+	base := filepath.Base(dst)
+	tmp, err := os.CreateTemp(dir, base+".tmp-")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
+
+	if err := tmp.Chmod(mode); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := io.Copy(tmp, in); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, dst); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensurePortsBoundByHTTPSD(httpAddr, httpsAddr string, pids []int) error {
+	ports := []struct {
+		label string
+		addr  string
+	}{
+		{label: "http", addr: httpAddr},
+		{label: "https", addr: httpsAddr},
+	}
+
+	for _, p := range ports {
+		port, err := parsePort(p.addr)
+		if err != nil {
+			return fmt.Errorf("%s port parse failed for %s: %w", p.label, p.addr, err)
+		}
+		inodes, err := listeningInodesForPort(port)
+		if err != nil {
+			return fmt.Errorf("%s port lookup failed for %s: %w", p.label, p.addr, err)
+		}
+		if len(inodes) == 0 {
+			return fmt.Errorf("%s port %s is not currently bound", p.label, p.addr)
+		}
+		if !anyPIDOwnsInode(pids, inodes) {
+			return fmt.Errorf("%s port %s is not bound by a running httpsd process", p.label, p.addr)
+		}
+	}
+
+	return nil
+}
+
+func parsePort(addr string) (int, error) {
+	_, portStr, splitErr := net.SplitHostPort(addr)
+	if splitErr != nil {
+		portStr = strings.TrimPrefix(addr, ":")
+	}
+	return strconv.Atoi(portStr)
+}
+
+func listeningInodesForPort(port int) (map[string]struct{}, error) {
+	inodes := make(map[string]struct{})
+	files := []string{"/proc/net/tcp", "/proc/net/tcp6"}
+	portHex := strings.ToUpper(fmt.Sprintf("%04X", port))
+
+	for _, file := range files {
+		f, err := os.Open(file)
+		if err != nil {
+			return nil, fmt.Errorf("open %s: %w", file, err)
+		}
+		scanner := bufio.NewScanner(f)
+		first := true
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if first {
+				first = false
+				continue
+			}
+			fields := strings.Fields(line)
+			if len(fields) < 10 {
+				continue
+			}
+			localAddr := fields[1]
+			state := fields[3]
+			inode := fields[9]
+			parts := strings.Split(localAddr, ":")
+			if len(parts) != 2 {
+				continue
+			}
+			if strings.ToUpper(parts[1]) != portHex {
+				continue
+			}
+			if state != "0A" {
+				continue
+			}
+			inodes[inode] = struct{}{}
+		}
+		if err := scanner.Err(); err != nil {
+			_ = f.Close()
+			return nil, fmt.Errorf("scan %s: %w", file, err)
+		}
+		_ = f.Close()
+	}
+
+	return inodes, nil
+}
+
+func anyPIDOwnsInode(pids []int, inodes map[string]struct{}) bool {
+	for _, pid := range pids {
+		fdDir := filepath.Join("/proc", strconv.Itoa(pid), "fd")
+		fds, err := os.ReadDir(fdDir)
+		if err != nil {
+			continue
+		}
+		for _, fd := range fds {
+			target, err := os.Readlink(filepath.Join(fdDir, fd.Name()))
+			if err != nil {
+				continue
+			}
+			if !strings.HasPrefix(target, "socket:[") || !strings.HasSuffix(target, "]") {
+				continue
+			}
+			inode := strings.TrimSuffix(strings.TrimPrefix(target, "socket:["), "]")
+			if _, ok := inodes[inode]; ok {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func findHTTPSDPIDs() ([]int, error) {
