@@ -2,7 +2,10 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"net"
 	"net/url"
@@ -61,6 +64,13 @@ func runCheck(opts app.RunOptions) error {
 		fmt.Println(line)
 	}
 	checkErrs = append(checkErrs, upstreamResults.failLines...)
+
+	fmt.Println("-- tls validation --")
+	tlsResults := checkTLSMaterials(opts.TLSCertPath, opts.TLSKeyPath)
+	for _, line := range tlsResults.okLines {
+		fmt.Println(line)
+	}
+	checkErrs = append(checkErrs, tlsResults.failLines...)
 
 	if len(checkErrs) > 0 {
 		return fmt.Errorf("check failed:\n- %s", strings.Join(checkErrs, "\n- "))
@@ -153,6 +163,133 @@ func checkUpstreams(cfg *proxycfg.Config) checkResult {
 	}
 
 	return result
+}
+
+func checkTLSMaterials(certPath, keyPath string) checkResult {
+	result := checkResult{}
+
+	certPEM, err := os.ReadFile(certPath)
+	if err != nil {
+		result.failLines = append(result.failLines, fmt.Sprintf("tls cert read failed (%s): %v", certPath, err))
+		return result
+	}
+	keyPEM, err := os.ReadFile(keyPath)
+	if err != nil {
+		result.failLines = append(result.failLines, fmt.Sprintf("tls key read failed (%s): %v", keyPath, err))
+		return result
+	}
+
+	if _, err := tls.X509KeyPair(certPEM, keyPEM); err != nil {
+		result.failLines = append(result.failLines, fmt.Sprintf("tls cert/key mismatch or parse failure: %v", err))
+	}
+
+	certs, parseErr := parseCertificatesFromPEM(certPEM)
+	if parseErr != nil {
+		result.failLines = append(result.failLines, parseErr.Error())
+		return result
+	}
+
+	leaf := certs[0]
+	if len(certs) < 2 {
+		result.failLines = append(result.failLines, "tls cert chain check failed: bundle must contain leaf cert followed by issuing sub-CA/intermediate cert")
+	} else {
+		if err := leaf.CheckSignatureFrom(certs[1]); err != nil {
+			result.failLines = append(result.failLines, fmt.Sprintf("tls chain check failed: leaf cert is not signed by next cert in bundle: %v", err))
+		}
+	}
+
+	for i := 0; i < len(certs)-1; i++ {
+		child := certs[i]
+		parent := certs[i+1]
+		if !bytes.Equal(child.RawIssuer, parent.RawSubject) {
+			result.failLines = append(result.failLines, fmt.Sprintf("tls chain ordering issue at position %d: issuer of cert[%d] does not match subject of cert[%d]", i, i, i+1))
+			continue
+		}
+		if err := child.CheckSignatureFrom(parent); err != nil {
+			result.failLines = append(result.failLines, fmt.Sprintf("tls chain signature check failed between cert[%d] and cert[%d]: %v", i, i+1, err))
+		}
+	}
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		result.failLines = append(result.failLines, fmt.Sprintf("tls SAN check failed: resolve local hostname: %v", err))
+	} else {
+		candidates := hostCandidates(hostname)
+		matched := ""
+		for _, candidate := range candidates {
+			if verifyErr := leaf.VerifyHostname(candidate); verifyErr == nil {
+				matched = candidate
+				break
+			}
+		}
+		if matched == "" {
+			result.failLines = append(result.failLines, fmt.Sprintf("tls SAN mismatch: cert does not match this host (checked: %s)", strings.Join(candidates, ",")))
+		} else {
+			result.okLines = append(result.okLines, fmt.Sprintf("tls SAN check OK (matched host %q)", matched))
+		}
+	}
+
+	if len(result.failLines) == 0 {
+		result.okLines = append(result.okLines, fmt.Sprintf("tls cert/key check OK (certs=%d leaf_subject=%q)", len(certs), leaf.Subject.String()))
+	}
+
+	return result
+}
+
+func parseCertificatesFromPEM(certPEM []byte) ([]*x509.Certificate, error) {
+	remaining := certPEM
+	certs := make([]*x509.Certificate, 0)
+	for {
+		block, rest := pem.Decode(remaining)
+		if block == nil {
+			break
+		}
+		remaining = rest
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("tls cert parse failed: %v", err)
+		}
+		certs = append(certs, cert)
+	}
+
+	if len(certs) == 0 {
+		return nil, fmt.Errorf("tls cert parse failed: no CERTIFICATE blocks found")
+	}
+	return certs, nil
+}
+
+func hostCandidates(hostname string) []string {
+	hostname = strings.TrimSpace(hostname)
+	if hostname == "" {
+		return []string{"localhost"}
+	}
+
+	set := map[string]struct{}{}
+	add := func(v string) {
+		v = strings.TrimSpace(strings.TrimSuffix(v, "."))
+		if v == "" {
+			return
+		}
+		set[v] = struct{}{}
+	}
+
+	add(hostname)
+	if strings.Contains(hostname, ".") {
+		add(strings.SplitN(hostname, ".", 2)[0])
+	}
+	if cname, err := net.LookupCNAME(hostname); err == nil {
+		add(cname)
+	}
+
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func findPortOwners(port int) ([]portProcessInfo, error) {
