@@ -1,15 +1,16 @@
 package main
 
 import (
-	"fmt"
+	"log"
 	"os"
 
 	"httpsd/internal/cli"
 )
 
 func main() {
+	log.SetFlags(log.LstdFlags | log.LUTC | log.Lmicroseconds)
 	if err := cli.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		log.Printf("fatal: %v", err)
 		os.Exit(1)
 	}
 }

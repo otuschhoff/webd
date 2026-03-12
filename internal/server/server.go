@@ -29,6 +29,17 @@ type routeProxy struct {
 
 // Run starts the HTTP and HTTPS reverse proxy servers and handles SIGHUP reloads.
 func Run(opts app.RunOptions) error {
+	log.Printf("startup begin pid=%d uid=%d euid=%d run_user=%q force=%t", os.Getpid(), os.Getuid(), os.Geteuid(), opts.RunUser, opts.Force)
+	if current, err := user.LookupId(strconv.Itoa(os.Geteuid())); err == nil {
+		log.Printf("startup identity user=%q uid=%s gid=%s home=%q", current.Username, current.Uid, current.Gid, current.HomeDir)
+	} else {
+		log.Printf("startup identity lookup failed: %v", err)
+	}
+	log.Printf("startup paths config=%q tls_cert=%q tls_key=%q access_log=%q", opts.ConfigPath, opts.TLSCertPath, opts.TLSKeyPath, opts.AccessLogPath)
+	logFileMetadata("config", opts.ConfigPath)
+	logFileMetadata("tls_cert", opts.TLSCertPath)
+	logFileMetadata("tls_key", opts.TLSKeyPath)
+
 	if os.Geteuid() == 0 {
 		return fmt.Errorf("httpsd must not run as root; remediate by running as user %q", opts.RunUser)
 	}
@@ -36,6 +47,7 @@ func Run(opts app.RunOptions) error {
 	if err := enforceRuntimeUser(opts); err != nil {
 		return err
 	}
+	log.Printf("runtime user enforcement passed")
 
 	cfg, err := proxycfg.Load(opts.ConfigPath)
 	if err != nil {
@@ -45,6 +57,9 @@ func Run(opts app.RunOptions) error {
 	routes, err := buildRouteProxies(cfg)
 	if err != nil {
 		return fmt.Errorf("route config error: %w", err)
+	}
+	for i, route := range cfg.Routes {
+		log.Printf("route configured index=%d path_prefix=%q upstream=%q", i, strings.TrimSpace(route.PathPrefix), strings.TrimSpace(route.Upstream))
 	}
 
 	var activeRoutes atomic.Value
@@ -122,19 +137,34 @@ func Run(opts app.RunOptions) error {
 	errCh := make(chan error, 2)
 	go func() {
 		log.Printf("listening HTTP on %s", opts.HTTPAddr)
-		errCh <- httpSrv.ListenAndServe()
+		err := httpSrv.ListenAndServe()
+		log.Printf("http server stopped addr=%s err=%v", opts.HTTPAddr, err)
+		errCh <- err
 	}()
 	go func() {
 		log.Printf("listening HTTPS on %s", opts.HTTPSAddr)
 		tlsListener, listenErr := tls.Listen("tcp", opts.HTTPSAddr, httpsSrv.TLSConfig)
 		if listenErr != nil {
+			log.Printf("https listener setup failed addr=%s cert=%q key=%q err=%v", opts.HTTPSAddr, opts.TLSCertPath, opts.TLSKeyPath, listenErr)
 			errCh <- listenErr
 			return
 		}
-		errCh <- httpsSrv.Serve(tlsListener)
+		err := httpsSrv.Serve(tlsListener)
+		log.Printf("https server stopped addr=%s err=%v", opts.HTTPSAddr, err)
+		errCh <- err
 	}()
 
 	return <-errCh
+}
+
+func logFileMetadata(kind, path string) {
+	st, err := os.Stat(path)
+	if err != nil {
+		log.Printf("startup file check kind=%s path=%q err=%v", kind, path, err)
+		return
+	}
+	mode := st.Mode().Perm()
+	log.Printf("startup file check kind=%s path=%q mode=%#o size=%d mtime=%s", kind, path, mode, st.Size(), st.ModTime().UTC().Format(time.RFC3339))
 }
 
 func enforceRuntimeUser(opts app.RunOptions) error {
