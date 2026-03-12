@@ -391,7 +391,7 @@ type parsedVersionName struct {
 
 func parseVersionName(v string) (parsedVersionName, bool) {
 	v = strings.TrimSpace(v)
-	if !strings.HasPrefix(v, "v") || len(v) < 2 {
+	if v == "" {
 		return parsedVersionName{}, false
 	}
 
@@ -406,7 +406,8 @@ func parseVersionName(v string) (parsedVersionName, bool) {
 		}
 	}
 
-	parts := strings.Split(strings.TrimPrefix(base, "v"), ".")
+	base = strings.TrimPrefix(base, "v")
+	parts := strings.Split(base, ".")
 	if len(parts) == 0 {
 		return parsedVersionName{}, false
 	}
