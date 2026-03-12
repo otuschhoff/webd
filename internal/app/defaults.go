@@ -8,6 +8,7 @@ const (
 	DefaultRunUser      = "httpsd"
 	DefaultHTTPAddr     = ":80"
 	DefaultHTTPSAddr    = ":443"
+	DefaultBinaryPath   = "/opt/httpsd/current/sbin/httpsd"
 	DefaultServicePath  = "/etc/systemd/system/httpsd.service"
 	AccessLogRotateSize = int64(1 * 1024 * 1024)
 )
@@ -52,6 +53,7 @@ type RunOptions struct {
 type SetupOptions struct {
 	TLSKeyPath  string
 	ServicePath string
+	BinaryPath  string
 }
 
 func DefaultRunOptions() RunOptions {
@@ -71,5 +73,6 @@ func DefaultSetupOptions() SetupOptions {
 	return SetupOptions{
 		TLSKeyPath:  DefaultTLSKeyPath,
 		ServicePath: DefaultServicePath,
+		BinaryPath:  DefaultBinaryPath,
 	}
 }

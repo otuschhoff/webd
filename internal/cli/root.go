@@ -67,6 +67,7 @@ func Execute() error {
 	}
 	setupCmd.Flags().StringVar(&setupOpts.TLSKeyPath, "tls-key", setupOpts.TLSKeyPath, "TLS private key path for permission setup")
 	setupCmd.Flags().StringVar(&setupOpts.ServicePath, "service-path", setupOpts.ServicePath, "Systemd unit file path")
+	setupCmd.Flags().StringVar(&setupOpts.BinaryPath, "binary", setupOpts.BinaryPath, "httpsd binary path for setcap configuration")
 
 	rootCmd.AddCommand(runCmd, reloadCmd, checkCmd, setupCmd)
 	return rootCmd.Execute()

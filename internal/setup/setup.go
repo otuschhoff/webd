@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -26,7 +27,7 @@ type groupEntry struct {
 
 func Run(opts app.SetupOptions) error {
 	if os.Geteuid() != 0 {
-		return fmt.Errorf("setup must be run as root")
+		return fmt.Errorf("setup must be run as root because it modifies /etc/passwd, /etc/group, file ownership/permissions, Linux file capabilities (setcap), and systemd unit files")
 	}
 
 	httpsdGroup, httpsdGroupCreated, err := ensureGroupExists("httpsd", -1)
@@ -80,6 +81,11 @@ func Run(opts app.SetupOptions) error {
 	}
 	fmt.Println("ensured /var/log/httpsd ownership=httpsd:httpsd perms=750")
 
+	if err := ensureNetBindCapability(opts.BinaryPath); err != nil {
+		return err
+	}
+	fmt.Printf("ensured Linux capability cap_net_bind_service=+ep on %s\n", opts.BinaryPath)
+
 	serviceExists, err := systemdServiceExists("httpsd")
 	if err != nil {
 		return err
@@ -95,6 +101,38 @@ func Run(opts app.SetupOptions) error {
 
 	fmt.Println("setup complete")
 	fmt.Println("next step: run 'systemctl daemon-reload' if a new unit file was created")
+	return nil
+}
+
+func ensureNetBindCapability(binaryPath string) error {
+	if strings.TrimSpace(binaryPath) == "" {
+		return fmt.Errorf("binary path for setcap cannot be empty")
+	}
+	if _, err := os.Stat(binaryPath); err != nil {
+		return fmt.Errorf("cannot set capability on %s: %w", binaryPath, err)
+	}
+
+	if _, err := exec.LookPath("setcap"); err != nil {
+		return fmt.Errorf("setcap not found in PATH; install libcap tools to continue")
+	}
+
+	cmd := exec.Command("setcap", "cap_net_bind_service=+ep", binaryPath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("setcap on %s failed: %v: %s", binaryPath, err, strings.TrimSpace(string(out)))
+	}
+
+	if _, err := exec.LookPath("getcap"); err == nil {
+		verify := exec.Command("getcap", binaryPath)
+		out, err := verify.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("getcap verification on %s failed: %v: %s", binaryPath, err, strings.TrimSpace(string(out)))
+		}
+		capStr := string(out)
+		if !strings.Contains(capStr, "cap_net_bind_service") {
+			return fmt.Errorf("capability verification failed for %s: %s", binaryPath, strings.TrimSpace(capStr))
+		}
+	}
+
 	return nil
 }
 
