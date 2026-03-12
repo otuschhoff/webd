@@ -2,6 +2,9 @@ package reloadcmd
 
 import (
 	"bufio"
+	"bytes"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"log"
@@ -151,6 +154,10 @@ func runGetent(database, key string) (string, error) {
 }
 
 func stageTLSArtifacts(opts Options, uid, gid int) error {
+	if err := validateTLSBundleOrder(opts.TLSCertSource); err != nil {
+		return fmt.Errorf("validate tls cert bundle order: %w", err)
+	}
+
 	if err := copyFileAtomic(opts.TLSCertSource, opts.TLSCertDest, 0o640); err != nil {
 		return fmt.Errorf("stage tls cert: %w", err)
 	}
@@ -166,6 +173,58 @@ func stageTLSArtifacts(opts Options, uid, gid int) error {
 	}
 
 	return nil
+}
+
+func validateTLSBundleOrder(certPath string) error {
+	pemBytes, err := os.ReadFile(certPath)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", certPath, err)
+	}
+
+	certs, err := parseCertificatesFromPEM(pemBytes)
+	if err != nil {
+		return err
+	}
+	if len(certs) < 2 {
+		return fmt.Errorf("bundle must contain leaf certificate first, followed by issuing intermediate/sub-CA certificate")
+	}
+
+	leaf := certs[0]
+	parent := certs[1]
+	if !bytes.Equal(leaf.RawIssuer, parent.RawSubject) {
+		return fmt.Errorf("first certificate is not issued by the second certificate (expected leaf first, then intermediate/sub-CA)")
+	}
+	if err := leaf.CheckSignatureFrom(parent); err != nil {
+		return fmt.Errorf("leaf certificate signature does not verify against second certificate: %w", err)
+	}
+
+	return nil
+}
+
+func parseCertificatesFromPEM(pemBytes []byte) ([]*x509.Certificate, error) {
+	remaining := pemBytes
+	certs := make([]*x509.Certificate, 0)
+	for {
+		block, rest := pem.Decode(remaining)
+		if block == nil {
+			break
+		}
+		remaining = rest
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("parse certificate: %w", err)
+		}
+		certs = append(certs, cert)
+	}
+
+	if len(certs) == 0 {
+		return nil, fmt.Errorf("no CERTIFICATE blocks found")
+	}
+
+	return certs, nil
 }
 
 func copyFileAtomic(src, dst string, mode os.FileMode) error {
