@@ -53,12 +53,15 @@ func Run(opts Options) error {
 		return fmt.Errorf("reload helper must run as root because it stages TLS artifacts under /run and updates ownership")
 	}
 
-	if err := validateRunTLSDirs(opts); err != nil {
+	runUID, runGID, err := lookupRunUser(opts.RunUser)
+	if err != nil {
 		return err
 	}
 
-	runUID, runGID, err := lookupRunUser(opts.RunUser)
-	if err != nil {
+	if err := validateRunTLSDirs(opts); err != nil {
+		return err
+	}
+	if err := ensureRuntimeTLSDir(opts, runUID, runGID); err != nil {
 		return err
 	}
 
@@ -109,12 +112,39 @@ func validateRunTLSDirs(opts Options) error {
 	if certDir != keyDir {
 		return fmt.Errorf("runtime TLS destinations must share one directory: cert dir=%s key dir=%s", certDir, keyDir)
 	}
-	if _, err := os.Stat(certDir); err != nil {
-		return fmt.Errorf("runtime TLS directory does not exist: %s: %w", certDir, err)
-	}
 	if !strings.HasPrefix(certDir, "/run/") {
 		return fmt.Errorf("runtime TLS directory must be under /run: %s", certDir)
 	}
+	return nil
+}
+
+func ensureRuntimeTLSDir(opts Options, uid, gid int) error {
+	runtimeDir := filepath.Clean(filepath.Dir(opts.TLSCertDest))
+	if runtimeDir != filepath.Clean(filepath.Dir(opts.TLSKeyDest)) {
+		return fmt.Errorf("runtime TLS destinations must share one directory")
+	}
+
+	st, err := os.Stat(runtimeDir)
+	if err == nil {
+		if !st.IsDir() {
+			return fmt.Errorf("runtime TLS path is not a directory: %s", runtimeDir)
+		}
+		return nil
+	}
+	if !os.IsNotExist(err) {
+		return fmt.Errorf("stat runtime TLS directory %s: %w", runtimeDir, err)
+	}
+
+	if err := os.MkdirAll(runtimeDir, 0o750); err != nil {
+		return fmt.Errorf("create runtime TLS directory %s: %w", runtimeDir, err)
+	}
+	if err := os.Chown(runtimeDir, uid, gid); err != nil {
+		return fmt.Errorf("chown runtime TLS directory %s: %w", runtimeDir, err)
+	}
+	if err := os.Chmod(runtimeDir, 0o750); err != nil {
+		return fmt.Errorf("chmod runtime TLS directory %s: %w", runtimeDir, err)
+	}
+
 	return nil
 }
 
