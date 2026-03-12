@@ -1,14 +1,17 @@
 package setup
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"httpsd/internal/app"
 )
@@ -89,6 +92,14 @@ func Run(opts app.SetupOptions) error {
 	}
 	fmt.Println("ensured /var/log/httpsd ownership=httpsd:httpsd perms=750")
 
+	installedBinaryPath, err := ensureVersionedInstall()
+	if err != nil {
+		return err
+	}
+	if installedBinaryPath != "" {
+		fmt.Printf("ensured versioned binary install at %s\n", installedBinaryPath)
+	}
+
 	if err := ensureNetBindCapability(opts.BinaryPath); err != nil {
 		return err
 	}
@@ -110,6 +121,247 @@ func Run(opts app.SetupOptions) error {
 	fmt.Println("setup complete")
 	fmt.Println("next step: run 'systemctl daemon-reload' if a new unit file was created")
 	return nil
+}
+
+func ensureVersionedInstall() (string, error) {
+	const installRoot = "/opt/httpsd"
+
+	versionDirName, err := buildVersionDirName()
+	if err != nil {
+		return "", err
+	}
+
+	currentExecPath, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("resolve current executable: %w", err)
+	}
+	resolvedExecPath, err := filepath.EvalSymlinks(currentExecPath)
+	if err == nil {
+		currentExecPath = resolvedExecPath
+	}
+
+	versionDir := filepath.Join(installRoot, versionDirName)
+	versionBinDir := filepath.Join(versionDir, "sbin")
+	versionBinaryPath := filepath.Join(versionBinDir, "httpsd")
+	currentLink := filepath.Join(installRoot, "current")
+
+	if err := os.MkdirAll(versionBinDir, 0o755); err != nil {
+		return "", fmt.Errorf("create versioned binary dir %s: %w", versionBinDir, err)
+	}
+
+	if _, err := os.Stat(versionBinaryPath); errors.Is(err, os.ErrNotExist) {
+		if err := copyFile(currentExecPath, versionBinaryPath, 0o755); err != nil {
+			return "", fmt.Errorf("install binary to %s: %w", versionBinaryPath, err)
+		}
+	} else if err != nil {
+		return "", fmt.Errorf("stat installed binary %s: %w", versionBinaryPath, err)
+	}
+
+	newestVersionDir, err := newestInstalledVersionDir(installRoot)
+	if err != nil {
+		return "", err
+	}
+
+	needsLinkUpdate := true
+	if target, err := os.Readlink(currentLink); err == nil {
+		resolvedTarget := target
+		if !filepath.IsAbs(resolvedTarget) {
+			resolvedTarget = filepath.Join(installRoot, resolvedTarget)
+		}
+		resolvedTarget = filepath.Clean(resolvedTarget)
+		if resolvedTarget == newestVersionDir {
+			needsLinkUpdate = false
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("read current symlink %s: %w", currentLink, err)
+	}
+
+	if needsLinkUpdate {
+		if err := os.Remove(currentLink); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("remove existing current symlink %s: %w", currentLink, err)
+		}
+		if err := os.Symlink(newestVersionDir, currentLink); err != nil {
+			return "", fmt.Errorf("create current symlink %s -> %s: %w", currentLink, newestVersionDir, err)
+		}
+	}
+
+	return versionBinaryPath, nil
+}
+
+func buildVersionDirName() (string, error) {
+	baseVersion := strings.TrimSpace(app.Version)
+	if baseVersion == "" || baseVersion == "unknown" {
+		return "", fmt.Errorf("application version is not set; cannot manage versioned install path")
+	}
+
+	buildTimeRaw := strings.TrimSpace(app.BuildTime)
+	if buildTimeRaw == "" || buildTimeRaw == "unknown" {
+		return "", fmt.Errorf("application build time is not set; cannot manage versioned install path")
+	}
+
+	buildTime, err := parseBuildTime(buildTimeRaw)
+	if err != nil {
+		return "", fmt.Errorf("invalid build time %q: %w", buildTimeRaw, err)
+	}
+
+	return fmt.Sprintf("%s-%s", baseVersion, buildTime.UTC().Format("20060102T150405Z")), nil
+}
+
+func parseBuildTime(input string) (time.Time, error) {
+	if ts, err := time.Parse(time.RFC3339, input); err == nil {
+		return ts, nil
+	}
+	if ts, err := time.Parse("20060102T150405Z", input); err == nil {
+		return ts, nil
+	}
+	return time.Time{}, fmt.Errorf("must be RFC3339 or 20060102T150405Z")
+}
+
+func newestInstalledVersionDir(root string) (string, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return "", fmt.Errorf("read install root %s: %w", root, err)
+	}
+
+	type versionDir struct {
+		name     string
+		fullPath string
+	}
+
+	versions := make([]versionDir, 0)
+	for _, entry := range entries {
+		name := entry.Name()
+		if name == "current" || !looksLikeVersion(name) {
+			continue
+		}
+		fullPath := filepath.Join(root, name)
+		info, err := os.Stat(fullPath)
+		if err != nil {
+			return "", fmt.Errorf("stat version dir %s: %w", fullPath, err)
+		}
+		if !info.IsDir() {
+			continue
+		}
+		versions = append(versions, versionDir{name: name, fullPath: fullPath})
+	}
+
+	if len(versions) == 0 {
+		return "", fmt.Errorf("no version directories found under %s", root)
+	}
+
+	sort.Slice(versions, func(i, j int) bool {
+		return compareVersionNames(versions[i].name, versions[j].name) > 0
+	})
+
+	return versions[0].fullPath, nil
+}
+
+func looksLikeVersion(v string) bool {
+	_, ok := parseVersionName(v)
+	return ok
+}
+
+func compareVersionNames(a, b string) int {
+	pa, oka := parseVersionName(a)
+	pb, okb := parseVersionName(b)
+	if !oka || !okb {
+		return cmp.Compare(strings.TrimSpace(a), strings.TrimSpace(b))
+	}
+
+	maxLen := len(pa.numbers)
+	if len(pb.numbers) > maxLen {
+		maxLen = len(pb.numbers)
+	}
+	for i := 0; i < maxLen; i++ {
+		av := 0
+		if i < len(pa.numbers) {
+			av = pa.numbers[i]
+		}
+		bv := 0
+		if i < len(pb.numbers) {
+			bv = pb.numbers[i]
+		}
+		if av != bv {
+			return cmp.Compare(av, bv)
+		}
+	}
+
+	if pa.hasTimestamp && pb.hasTimestamp {
+		if cmp := pa.timestamp.Compare(pb.timestamp); cmp != 0 {
+			return cmp
+		}
+	}
+	if pa.hasTimestamp && !pb.hasTimestamp {
+		return 1
+	}
+	if !pa.hasTimestamp && pb.hasTimestamp {
+		return -1
+	}
+
+	return 0
+}
+
+type parsedVersionName struct {
+	numbers      []int
+	timestamp    time.Time
+	hasTimestamp bool
+}
+
+func parseVersionName(v string) (parsedVersionName, bool) {
+	v = strings.TrimSpace(v)
+	if !strings.HasPrefix(v, "v") || len(v) < 2 {
+		return parsedVersionName{}, false
+	}
+
+	base := v
+	parsed := parsedVersionName{}
+	if idx := strings.LastIndex(v, "-"); idx > 1 {
+		candidateTS := v[idx+1:]
+		if ts, err := time.Parse("20060102T150405Z", candidateTS); err == nil {
+			parsed.hasTimestamp = true
+			parsed.timestamp = ts
+			base = v[:idx]
+		}
+	}
+
+	parts := strings.Split(strings.TrimPrefix(base, "v"), ".")
+	if len(parts) == 0 {
+		return parsedVersionName{}, false
+	}
+	numbers := make([]int, 0, len(parts))
+	for _, part := range parts {
+		if part == "" {
+			return parsedVersionName{}, false
+		}
+		n, err := strconv.Atoi(part)
+		if err != nil {
+			return parsedVersionName{}, false
+		}
+		numbers = append(numbers, n)
+	}
+	parsed.numbers = numbers
+	return parsed, true
+}
+
+func copyFile(src, dst string, mode os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = out.Close()
+	}()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
 }
 
 func ensureNetBindCapability(binaryPath string) error {
