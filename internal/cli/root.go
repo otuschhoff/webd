@@ -18,15 +18,15 @@ func Execute() error {
 	setupOpts := app.DefaultSetupOptions()
 
 	rootCmd := &cobra.Command{
-		Use:   "httpsd",
-		Short: "HTTPS reverse proxy daemon",
+		Use:     "httpsd",
+		Short:   "HTTPS reverse proxy daemon",
 		Version: app.VersionString(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return server.Run(runOpts)
 		},
 	}
 
-	rootCmd.PersistentFlags().StringVar(&runOpts.ConfigPath, "config", runOpts.ConfigPath, "Path to JSON reverse-proxy config")
+	rootCmd.PersistentFlags().StringVar(&runOpts.ConfigPath, "config", runOpts.ConfigPath, "Path to YAML reverse-proxy config")
 	rootCmd.PersistentFlags().StringVar(&runOpts.HTTPAddr, "http-addr", runOpts.HTTPAddr, "HTTP listen address")
 	rootCmd.PersistentFlags().StringVar(&runOpts.HTTPSAddr, "https-addr", runOpts.HTTPSAddr, "HTTPS listen address")
 	rootCmd.PersistentFlags().StringVar(&runOpts.TLSCertPath, "tls-cert", runOpts.TLSCertPath, "TLS certificate file")
@@ -53,7 +53,7 @@ func Execute() error {
 
 	checkCmd := &cobra.Command{
 		Use:   "check",
-		Short: "Validate config and print it in pretty colored JSON",
+		Short: "Validate config and print it in pretty colored YAML",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runCheck(runOpts.ConfigPath)
 		},
@@ -80,11 +80,11 @@ func runCheck(configPath string) error {
 	if err != nil {
 		return err
 	}
-	pretty, err := proxycfg.PrettyJSON(cfg)
+	pretty, err := proxycfg.PrettyYAML(cfg)
 	if err != nil {
 		return err
 	}
 
-	fmt.Println(proxycfg.ColorizeJSON(pretty, os.Getenv("NO_COLOR") == ""))
+	fmt.Println(proxycfg.ColorizeYAML(pretty, os.Getenv("NO_COLOR") == ""))
 	return nil
 }

@@ -1,0 +1,5 @@
+routes:
+  - path_prefix: /api/
+    upstream: http://127.0.0.1:8080
+  - path_prefix: /
+    upstream: http://127.0.0.1:3000

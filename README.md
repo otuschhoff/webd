@@ -20,7 +20,7 @@ CGO_ENABLED=0 go build \
 Run the proxy server:
 
 ```sh
-./httpsd run --config /etc/httpsd/config.json
+./httpsd run --config /etc/httpsd/config.yaml
 ```
 
 Reload config + TLS on a running process:
@@ -32,7 +32,7 @@ Reload config + TLS on a running process:
 Validate and pretty-print config:
 
 ```sh
-./httpsd check --config /etc/httpsd/config.json
+./httpsd check --config /etc/httpsd/config.yaml
 ```
 
 Host setup (root required):
@@ -43,23 +43,16 @@ sudo ./httpsd setup
 
 ## Configuration
 
-Default config path: `/etc/httpsd/config.json`
+Default config path: `/etc/httpsd/config.yaml`
 
-Example (`config.example.json`):
+Example (`config.example.yaml`):
 
-```json
-{
-  "routes": [
-    {
-      "path_prefix": "/api/",
-      "upstream": "http://127.0.0.1:8080"
-    },
-    {
-      "path_prefix": "/",
-      "upstream": "http://127.0.0.1:3000"
-    }
-  ]
-}
+```yaml
+routes:
+  - path_prefix: /api/
+    upstream: http://127.0.0.1:8080
+  - path_prefix: /
+    upstream: http://127.0.0.1:3000
 ```
 
 Rules:
@@ -104,7 +97,7 @@ Examples:
 xc -s -no-tty     # list task names
 xc build          # build ./httpsd from ./cmd/httpsd
 xc test           # run all tests
-xc check          # validate config.example.json
+xc check          # validate config.example.yaml
 ./httpsd --version
 ```
 
@@ -130,7 +123,7 @@ go test ./...
 CGO_ENABLED=0 go build \
   -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
   -o ./httpsd ./cmd/httpsd
-./httpsd check --config ./config.example.json
+./httpsd check --config ./config.example.yaml
 ```
 
 ### run
@@ -139,7 +132,7 @@ CGO_ENABLED=0 go build \
 CGO_ENABLED=0 go build \
   -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
   -o ./httpsd ./cmd/httpsd
-./httpsd run --config "${CONFIG:-/etc/httpsd/config.json}"
+./httpsd run --config "${CONFIG:-/etc/httpsd/config.yaml}"
 ```
 
 ### reload

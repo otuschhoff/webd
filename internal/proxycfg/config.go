@@ -1,21 +1,22 @@
 package proxycfg
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
 	"regexp"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 type Route struct {
-	PathPrefix string `json:"path_prefix"`
-	Upstream   string `json:"upstream"`
+	PathPrefix string `yaml:"path_prefix"`
+	Upstream   string `yaml:"upstream"`
 }
 
 type Config struct {
-	Routes []Route `json:"routes"`
+	Routes []Route `yaml:"routes"`
 }
 
 func Load(path string) (*Config, error) {
@@ -25,7 +26,7 @@ func Load(path string) (*Config, error) {
 	}
 
 	var cfg Config
-	if err := json.Unmarshal(b, &cfg); err != nil {
+	if err := yaml.Unmarshal(b, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
 	}
 
@@ -57,15 +58,15 @@ func Validate(cfg *Config) error {
 	return nil
 }
 
-func PrettyJSON(cfg *Config) (string, error) {
-	pretty, err := json.MarshalIndent(cfg, "", "  ")
+func PrettyYAML(cfg *Config) (string, error) {
+	pretty, err := yaml.Marshal(cfg)
 	if err != nil {
-		return "", fmt.Errorf("marshal pretty config: %w", err)
+		return "", fmt.Errorf("marshal yaml config: %w", err)
 	}
 	return string(pretty), nil
 }
 
-func ColorizeJSON(in string, useColor bool) string {
+func ColorizeYAML(in string, useColor bool) string {
 	if !useColor {
 		return in
 	}
@@ -78,19 +79,25 @@ func ColorizeJSON(in string, useColor bool) string {
 		colorMagenta = "\033[35m"
 	)
 
-	keyRe := regexp.MustCompile(`^(\s*)"([^"]+)"(\s*:)`)
-	strValRe := regexp.MustCompile(`(:\s*)"([^"]*)"`)
-	numBoolNullRe := regexp.MustCompile(`(:\s*)(-?[0-9][0-9eE+\.-]*|true|false|null)`)
+	keyRe := regexp.MustCompile(`^(\s*)([a-zA-Z0-9_\-]+):(\s*)(.*)$`)
+	numBoolNullRe := regexp.MustCompile(`^(-?[0-9][0-9eE+\.-]*|true|false|null)$`)
 
 	lines := strings.Split(in, "\n")
 	for i, line := range lines {
-		line = strings.ReplaceAll(line, "{", colorCyan+"{"+colorReset)
-		line = strings.ReplaceAll(line, "}", colorCyan+"}"+colorReset)
-		line = strings.ReplaceAll(line, "[", colorCyan+"["+colorReset)
-		line = strings.ReplaceAll(line, "]", colorCyan+"]"+colorReset)
-		line = keyRe.ReplaceAllString(line, `$1`+colorYellow+`"$2"`+colorReset+`$3`)
-		line = strValRe.ReplaceAllString(line, `$1`+colorGreen+`"$2"`+colorReset)
-		line = numBoolNullRe.ReplaceAllString(line, `$1`+colorMagenta+`$2`+colorReset)
+		line = strings.ReplaceAll(line, "- ", colorCyan+"- "+colorReset)
+		if m := keyRe.FindStringSubmatch(line); len(m) == 5 {
+			val := strings.TrimSpace(m[4])
+			coloredVal := m[4]
+			switch {
+			case strings.HasPrefix(val, "\"") && strings.HasSuffix(val, "\""):
+				coloredVal = m[3] + colorGreen + strings.TrimPrefix(m[4], m[3]) + colorReset
+			case numBoolNullRe.MatchString(val):
+				coloredVal = m[3] + colorMagenta + strings.TrimPrefix(m[4], m[3]) + colorReset
+			case val != "":
+				coloredVal = m[3] + colorGreen + strings.TrimPrefix(m[4], m[3]) + colorReset
+			}
+			line = m[1] + colorYellow + m[2] + colorReset + ":" + coloredVal
+		}
 		lines[i] = line
 	}
 	return strings.Join(lines, "\n")

@@ -1,7 +1,7 @@
 package app
 
 const (
-	DefaultConfigPath   = "/etc/httpsd/config.json"
+	DefaultConfigPath   = "/etc/httpsd/config.yaml"
 	DefaultTLSCertPath  = "/etc/pki/tls/certs/self.crt"
 	DefaultTLSKeyPath   = "/etc/pki/tls/private/self.key"
 	DefaultAccessLog    = "/var/log/httpsd/access.log"
