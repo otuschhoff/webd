@@ -15,7 +15,7 @@ type Route struct {
 	// PathPrefix is matched against the incoming request path.
 	PathPrefix string `yaml:"path_prefix"`
 	// Upstream is the absolute HTTP or HTTPS upstream base URL.
-	Upstream   string `yaml:"upstream"`
+	Upstream string `yaml:"upstream"`
 }
 
 // Config is the root YAML configuration for reverse-proxy routes.

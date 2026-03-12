@@ -53,21 +53,21 @@ WantedBy=multi-user.target
 // RunOptions contains runtime configuration for the proxy process.
 type RunOptions struct {
 	// ConfigPath points to the YAML route configuration file.
-	ConfigPath    string
+	ConfigPath string
 	// HTTPAddr is the plain HTTP listen address.
-	HTTPAddr      string
+	HTTPAddr string
 	// HTTPSAddr is the TLS-enabled HTTPS listen address.
-	HTTPSAddr     string
+	HTTPSAddr string
 	// TLSCertPath points to the certificate chain PEM file.
-	TLSCertPath   string
+	TLSCertPath string
 	// TLSKeyPath points to the private key PEM file.
-	TLSKeyPath    string
+	TLSKeyPath string
 	// AccessLogPath points to the access log written by the daemon.
 	AccessLogPath string
 	// RunUser is the expected account name for the running server process.
-	RunUser       string
+	RunUser string
 	// Force disables the runtime user enforcement check.
-	Force         bool
+	Force bool
 }
 
 // SetupOptions contains host-level paths used by the setup subcommand.
@@ -75,11 +75,11 @@ type SetupOptions struct {
 	// TLSCertPath points to the certificate file whose ownership and mode are enforced.
 	TLSCertPath string
 	// TLSKeyPath points to the private key file whose ownership and mode are enforced.
-	TLSKeyPath  string
+	TLSKeyPath string
 	// ServicePath is the systemd unit file path managed by setup.
 	ServicePath string
 	// BinaryPath is the installed httpsd binary path used for capability setup.
-	BinaryPath  string
+	BinaryPath string
 }
 
 // DefaultRunOptions returns the runtime defaults used by the root and run commands.
