@@ -81,6 +81,9 @@ func Run(opts app.SetupOptions) error {
 	if err := validateServiceIdentity("httpsd", "httpsd", "tlskey"); err != nil {
 		return err
 	}
+	if err := validateAccountDatabases("httpsd", "tlskey"); err != nil {
+		return err
+	}
 
 	if err := os.Chown(opts.TLSKeyPath, 0, tlskeyGID); err != nil {
 		return fmt.Errorf("set owner root:tlskey on %s: %w", opts.TLSKeyPath, err)
@@ -638,6 +641,95 @@ func runGetent(database, key string) (string, error) {
 	}
 	firstLine := strings.Split(line, "\n")[0]
 	return firstLine, nil
+}
+
+func validateAccountDatabases(requiredGroups ...string) error {
+	passwdEntries, err := readPasswdEntries()
+	if err != nil {
+		return fmt.Errorf("account database validation failed: %w", err)
+	}
+	groupEntries, _, err := readGroupEntriesAndLines()
+	if err != nil {
+		return fmt.Errorf("group database validation failed: %w", err)
+	}
+
+	userNameCount := map[string]int{}
+	userIDCount := map[int]int{}
+	for _, e := range passwdEntries {
+		userNameCount[e.name]++
+		userIDCount[e.uid]++
+	}
+	if userNameCount["httpsd"] != 1 {
+		return fmt.Errorf("account database validation failed: expected exactly one httpsd user entry in /etc/passwd, found %d", userNameCount["httpsd"])
+	}
+	httpsdUID := -1
+	httpsdGID := -1
+	for _, e := range passwdEntries {
+		if e.name == "httpsd" {
+			httpsdUID = e.uid
+			httpsdGID = e.gid
+			break
+		}
+	}
+	if httpsdUID < 0 || httpsdGID < 0 {
+		return fmt.Errorf("account database validation failed: could not resolve httpsd uid/gid from /etc/passwd")
+	}
+	if userIDCount[httpsdUID] != 1 {
+		return fmt.Errorf("account database validation failed: uid %d is not unique in /etc/passwd", httpsdUID)
+	}
+
+	groupNameCount := map[string]int{}
+	groupIDCount := map[int]int{}
+	for _, e := range groupEntries {
+		groupNameCount[e.name]++
+		groupIDCount[e.gid]++
+	}
+	if groupNameCount["httpsd"] != 1 {
+		return fmt.Errorf("group database validation failed: expected exactly one httpsd group entry in /etc/group, found %d", groupNameCount["httpsd"])
+	}
+	for _, g := range requiredGroups {
+		if groupNameCount[g] != 1 {
+			return fmt.Errorf("group database validation failed: expected exactly one %s group entry in /etc/group, found %d", g, groupNameCount[g])
+		}
+	}
+	httpsdPrimaryGroupGID := -1
+	for _, e := range groupEntries {
+		if e.name == "httpsd" {
+			httpsdPrimaryGroupGID = e.gid
+			break
+		}
+	}
+	if httpsdPrimaryGroupGID < 0 {
+		return fmt.Errorf("group database validation failed: could not resolve httpsd group gid from /etc/group")
+	}
+	if groupIDCount[httpsdPrimaryGroupGID] != 1 {
+		return fmt.Errorf("group database validation failed: gid %d is not unique in /etc/group", httpsdPrimaryGroupGID)
+	}
+	if httpsdGID != httpsdPrimaryGroupGID {
+		return fmt.Errorf("account/group mismatch: httpsd user gid=%d but httpsd group gid=%d", httpsdGID, httpsdPrimaryGroupGID)
+	}
+
+	if err := runReadonlyAccountChecker("pwck", "-r"); err != nil {
+		return fmt.Errorf("/etc/passwd consistency check failed: %w", err)
+	}
+	if err := runReadonlyAccountChecker("grpck", "-r"); err != nil {
+		return fmt.Errorf("/etc/group consistency check failed: %w", err)
+	}
+
+	fmt.Println("validated account database consistency with pwck/grpck")
+	return nil
+}
+
+func runReadonlyAccountChecker(tool string, args ...string) error {
+	if _, err := exec.LookPath(tool); err != nil {
+		return fmt.Errorf("%s not found in PATH", tool)
+	}
+	cmd := exec.Command(tool, args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 func readPasswdEntries() ([]passwdEntry, error) {
