@@ -175,9 +175,11 @@ func ensureSystemdUnit(path, desired string, force bool) (bool, error) {
 	existing, err := os.ReadFile(path)
 	if err == nil {
 		if string(existing) == desired {
-			return false, nil
+			if !force {
+				return false, nil
+			}
 		}
-		if !force {
+		if string(existing) != desired && !force {
 			return false, fmt.Errorf("systemd unit %s differs from required defaults; rerun setup with --force to overwrite it", path)
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
