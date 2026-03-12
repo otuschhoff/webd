@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -11,11 +12,14 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -49,6 +53,37 @@ type rotatingWriter struct {
 	maxBytes int64
 	file     *os.File
 	size     int64
+}
+
+type certReloader struct {
+	certPath string
+	keyPath  string
+	cert     atomic.Pointer[tls.Certificate]
+}
+
+func newCertReloader(certPath, keyPath string) (*certReloader, error) {
+	cr := &certReloader{certPath: certPath, keyPath: keyPath}
+	if err := cr.Reload(); err != nil {
+		return nil, err
+	}
+	return cr, nil
+}
+
+func (c *certReloader) Reload() error {
+	loaded, err := tls.LoadX509KeyPair(c.certPath, c.keyPath)
+	if err != nil {
+		return fmt.Errorf("load tls cert/key: %w", err)
+	}
+	c.cert.Store(&loaded)
+	return nil
+}
+
+func (c *certReloader) GetCertificate(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+	loaded := c.cert.Load()
+	if loaded == nil {
+		return nil, fmt.Errorf("tls certificate is not loaded")
+	}
+	return loaded, nil
 }
 
 func newRotatingWriter(path string, maxBytes int64) (*rotatingWriter, error) {
@@ -254,6 +289,9 @@ func main() {
 		log.Fatalf("route config error: %v", err)
 	}
 
+	var activeRoutes atomic.Value
+	activeRoutes.Store(routes)
+
 	rw, err := newRotatingWriter(*accessLogPath, accessLogRotateSize)
 	if err != nil {
 		log.Fatalf("access log setup error: %v", err)
@@ -267,7 +305,8 @@ func main() {
 	accessLogger := log.New(rw, "", 0)
 
 	router := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		for _, route := range routes {
+		routesNow := activeRoutes.Load().([]routeProxy)
+		for _, route := range routesNow {
 			if strings.HasPrefix(r.URL.Path, route.prefix) {
 				route.proxy.ServeHTTP(w, r)
 				return
@@ -282,12 +321,50 @@ func main() {
 		Addr:    *httpAddr,
 		Handler: handler,
 	}
+
+	certs, err := newCertReloader(*tlsCert, *tlsKey)
+	if err != nil {
+		log.Fatalf("tls setup error: %v", err)
+	}
+
 	httpsSrv := &http.Server{
 		Addr:    *httpsAddr,
 		Handler: handler,
+		TLSConfig: &tls.Config{
+			MinVersion:     tls.VersionTLS12,
+			GetCertificate: certs.GetCertificate,
+		},
 	}
 
-	log.Printf("httpsd starting http=%s https=%s config=%s access_log=%s", *httpAddr, *httpsAddr, *configPath, *accessLogPath)
+	log.Printf("httpsd starting http=%s https=%s config=%s access_log=%s routes=%d", *httpAddr, *httpsAddr, *configPath, *accessLogPath, len(routes))
+	log.Printf("reload enabled: send SIGHUP to reload TLS cert/key and proxy config")
+
+	// Reload certificate files on SIGHUP without restarting listeners.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGHUP)
+	defer signal.Stop(sigCh)
+	go func() {
+		for range sigCh {
+			cfg, cfgErr := loadConfig(*configPath)
+			if cfgErr != nil {
+				log.Printf("config reload failed: %v", cfgErr)
+			} else {
+				reloadedRoutes, routesErr := buildRouteProxies(cfg)
+				if routesErr != nil {
+					log.Printf("route reload failed: %v", routesErr)
+				} else {
+					activeRoutes.Store(reloadedRoutes)
+					log.Printf("proxy routes reloaded successfully: routes=%d", len(reloadedRoutes))
+				}
+			}
+
+			if reloadErr := certs.Reload(); reloadErr != nil {
+				log.Printf("tls reload failed: %v", reloadErr)
+				continue
+			}
+			log.Printf("tls cert/key reloaded successfully")
+		}
+	}()
 
 	errCh := make(chan error, 2)
 	go func() {
@@ -296,7 +373,12 @@ func main() {
 	}()
 	go func() {
 		log.Printf("listening HTTPS on %s", *httpsAddr)
-		errCh <- httpsSrv.ListenAndServeTLS(*tlsCert, *tlsKey)
+		tlsListener, listenErr := tls.Listen("tcp", *httpsAddr, httpsSrv.TLSConfig)
+		if listenErr != nil {
+			errCh <- listenErr
+			return
+		}
+		errCh <- httpsSrv.Serve(tlsListener)
 	}()
 
 	err = <-errCh
