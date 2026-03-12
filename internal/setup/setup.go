@@ -16,6 +16,20 @@ import (
 	"httpsd/internal/app"
 )
 
+const defaultConfigJSON = `{
+	"routes": [
+		{
+			"path_prefix": "/api/",
+			"upstream": "http://127.0.0.1:8080/api/v1/"
+		},
+		{
+			"path_prefix": "/",
+			"upstream": "http://127.0.0.1:3000"
+		}
+	]
+}
+`
+
 type passwdEntry struct {
 	name string
 	uid  int
@@ -81,6 +95,10 @@ func Run(opts app.SetupOptions) error {
 	}
 	fmt.Printf("set TLS cert ownership and mode on %s\n", opts.TLSCertPath)
 
+	if err := ensureEtcConfig(httpsdGroup); err != nil {
+		return err
+	}
+
 	if err := os.MkdirAll("/var/log/httpsd", 0o750); err != nil {
 		return fmt.Errorf("create /var/log/httpsd: %w", err)
 	}
@@ -120,6 +138,38 @@ func Run(opts app.SetupOptions) error {
 	}
 
 	fmt.Println("setup complete")
+	return nil
+}
+
+func ensureEtcConfig(httpsdGroup int) error {
+	const etcDir = "/etc/httpsd"
+	const configPath = "/etc/httpsd/config.json"
+
+	if err := os.MkdirAll(etcDir, 0o750); err != nil {
+		return fmt.Errorf("create %s: %w", etcDir, err)
+	}
+	if err := os.Chown(etcDir, 0, httpsdGroup); err != nil {
+		return fmt.Errorf("chown %s to root:httpsd: %w", etcDir, err)
+	}
+	if err := os.Chmod(etcDir, 0o750); err != nil {
+		return fmt.Errorf("chmod %s to 0750: %w", etcDir, err)
+	}
+	fmt.Println("ensured /etc/httpsd ownership=root:httpsd perms=750")
+
+	if _, err := os.Stat(configPath); errors.Is(err, os.ErrNotExist) {
+		if err := os.WriteFile(configPath, []byte(defaultConfigJSON), 0o640); err != nil {
+			return fmt.Errorf("write default config %s: %w", configPath, err)
+		}
+		if err := os.Chown(configPath, 0, httpsdGroup); err != nil {
+			return fmt.Errorf("chown %s to root:httpsd: %w", configPath, err)
+		}
+		fmt.Printf("deployed config example to %s\n", configPath)
+	} else if err != nil {
+		return fmt.Errorf("stat %s: %w", configPath, err)
+	} else {
+		fmt.Printf("config file already exists: %s\n", configPath)
+	}
+
 	return nil
 }
 

@@ -1,13 +1,9 @@
 package cli
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/spf13/cobra"
 
 	"httpsd/internal/app"
-	"httpsd/internal/proxycfg"
 	"httpsd/internal/reloadcmd"
 	"httpsd/internal/server"
 	"httpsd/internal/setup"
@@ -55,7 +51,7 @@ func Execute() error {
 		Use:   "check",
 		Short: "Validate config and print it in pretty colored YAML",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runCheck(runOpts.ConfigPath)
+			return runCheck(runOpts)
 		},
 	}
 
@@ -73,18 +69,4 @@ func Execute() error {
 
 	rootCmd.AddCommand(runCmd, reloadCmd, checkCmd, setupCmd)
 	return rootCmd.Execute()
-}
-
-func runCheck(configPath string) error {
-	cfg, err := proxycfg.Load(configPath)
-	if err != nil {
-		return err
-	}
-	pretty, err := proxycfg.PrettyYAML(cfg)
-	if err != nil {
-		return err
-	}
-
-	fmt.Println(proxycfg.ColorizeYAML(pretty, os.Getenv("NO_COLOR") == ""))
-	return nil
 }
