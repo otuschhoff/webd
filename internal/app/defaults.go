@@ -1,11 +1,13 @@
 package app
 
 // DefaultConfigPath is the default YAML configuration file location.
-// DefaultTLSCertPath is the default TLS certificate bundle path.
-// DefaultTLSKeyPath is the default TLS private key path.
+// DefaultTLSSourceCertPath is the default source TLS certificate bundle path.
+// DefaultTLSSourceKeyPath is the default source TLS private key path.
 // DefaultRuntimeTLSDir is the runtime directory used for staged TLS artifacts.
 // DefaultRuntimeTLSCertPath is the staged runtime TLS certificate path.
 // DefaultRuntimeTLSKeyPath is the staged runtime TLS private key path.
+// DefaultTLSCertPath is the default TLS certificate path used by the running server.
+// DefaultTLSKeyPath is the default TLS private key path used by the running server.
 // DefaultAccessLog is the default access log file path.
 // DefaultRunUser is the default non-root runtime account for the daemon.
 // DefaultHTTPAddr is the default HTTP listen address.
@@ -15,11 +17,13 @@ package app
 // AccessLogRotateSize is the log size threshold that triggers access log rotation.
 const (
 	DefaultConfigPath         = "/etc/httpsd/config.yaml"
-	DefaultTLSCertPath        = "/etc/pki/tls/certs/self.crt"
-	DefaultTLSKeyPath         = "/etc/pki/tls/private/self.key"
+	DefaultTLSSourceCertPath  = "/etc/pki/tls/certs/self.crt"
+	DefaultTLSSourceKeyPath   = "/etc/pki/tls/private/self.key"
 	DefaultRuntimeTLSDir      = "/run/httpsd"
 	DefaultRuntimeTLSCertPath = "/run/httpsd/tls.crt"
 	DefaultRuntimeTLSKeyPath  = "/run/httpsd/tls.key"
+	DefaultTLSCertPath        = DefaultRuntimeTLSCertPath
+	DefaultTLSKeyPath         = DefaultRuntimeTLSKeyPath
 	DefaultAccessLog          = "/var/log/httpsd/access.log"
 	DefaultRunUser            = "httpsd"
 	DefaultHTTPAddr           = ":80"
@@ -41,9 +45,9 @@ User=httpsd
 Group=httpsd
 RuntimeDirectory=httpsd
 RuntimeDirectoryMode=0750
-ExecStartPre=+/opt/httpsd/current/sbin/httpsd reload --prepare-only --run-user httpsd --http-addr :80 --https-addr :443 --tls-cert-source /etc/pki/tls/certs/self.crt --tls-key-source /etc/pki/tls/private/self.key --tls-cert /run/httpsd/tls.crt --tls-key /run/httpsd/tls.key
-ExecStart=/opt/httpsd/current/sbin/httpsd run --tls-cert /run/httpsd/tls.crt --tls-key /run/httpsd/tls.key
-ExecReload=+/opt/httpsd/current/sbin/httpsd reload --run-user httpsd --http-addr :80 --https-addr :443 --tls-cert-source /etc/pki/tls/certs/self.crt --tls-key-source /etc/pki/tls/private/self.key --tls-cert /run/httpsd/tls.crt --tls-key /run/httpsd/tls.key
+ExecStartPre=+/opt/httpsd/current/sbin/httpsd reload --prepare-only
+ExecStart=/opt/httpsd/current/sbin/httpsd run
+ExecReload=+/opt/httpsd/current/sbin/httpsd reload
 Restart=on-failure
 
 # Security: Give the binary permission to bind to ports 80/443
@@ -82,9 +86,9 @@ type RunOptions struct {
 
 // SetupOptions contains host-level paths used by the setup subcommand.
 type SetupOptions struct {
-	// TLSCertPath points to the certificate file whose ownership and mode are enforced.
+	// TLSCertPath points to the source certificate file validated by setup.
 	TLSCertPath string
-	// TLSKeyPath points to the private key file whose ownership and mode are enforced.
+	// TLSKeyPath points to the source private key file validated by setup.
 	TLSKeyPath string
 	// ServicePath is the systemd unit file path managed by setup.
 	ServicePath string
@@ -111,8 +115,8 @@ func DefaultRunOptions() RunOptions {
 // DefaultSetupOptions returns the default file paths used by the setup command.
 func DefaultSetupOptions() SetupOptions {
 	return SetupOptions{
-		TLSCertPath: DefaultTLSCertPath,
-		TLSKeyPath:  DefaultTLSKeyPath,
+		TLSCertPath: DefaultTLSSourceCertPath,
+		TLSKeyPath:  DefaultTLSSourceKeyPath,
 		ServicePath: DefaultServicePath,
 		BinaryPath:  DefaultBinaryPath,
 		Force:       false,
