@@ -50,7 +50,7 @@ Example (`config.example.yaml`):
 ```yaml
 routes:
   - path_prefix: /api/
-    upstream: http://127.0.0.1:8080
+    upstream: http://127.0.0.1:8080/api/v1/
   - path_prefix: /
     upstream: http://127.0.0.1:3000
 ```

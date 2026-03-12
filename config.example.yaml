@@ -1,5 +1,10 @@
+# Route evaluation is prefix-based and the longest matching prefix wins.
+# Keep more specific routes (like /api/) alongside a final catch-all / route.
 routes:
+  # Requests beginning with /api/ are proxied to backend API v1 paths.
   - path_prefix: /api/
-    upstream: http://127.0.0.1:8080
+    upstream: http://127.0.0.1:8080/api/v1/
+
+  # Fallback for everything else.
   - path_prefix: /
     upstream: http://127.0.0.1:3000
