@@ -20,6 +20,7 @@ func Execute() error {
 	rootCmd := &cobra.Command{
 		Use:   "httpsd",
 		Short: "HTTPS reverse proxy daemon",
+		Version: app.VersionString(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return server.Run(runOpts)
 		},

@@ -88,6 +88,7 @@ func Run(opts app.RunOptions) error {
 		},
 	}
 
+	log.Printf("httpsd version=%s", app.VersionString())
 	log.Printf("httpsd starting http=%s https=%s config=%s access_log=%s routes=%d", opts.HTTPAddr, opts.HTTPSAddr, opts.ConfigPath, opts.AccessLogPath, len(routes))
 	log.Printf("reload enabled: send SIGHUP to reload TLS cert/key and proxy config")
 

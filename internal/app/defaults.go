@@ -14,7 +14,7 @@ const (
 )
 
 const ServiceUnitContent = `[Unit]
-Description=Custom HTTPS Proxy for internal app
+Description=HTTPS Proxy
 After=network.target network-online.target
 Requires=network-online.target
 
