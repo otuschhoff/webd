@@ -16,18 +16,14 @@ import (
 	"httpsd/internal/app"
 )
 
-const defaultConfigJSON = `{
-	"routes": [
-		{
-			"path_prefix": "/api/",
-			"upstream": "http://127.0.0.1:8080/api/v1/"
-		},
-		{
-			"path_prefix": "/",
-			"upstream": "http://127.0.0.1:3000"
-		}
-	]
-}
+const defaultConfigYAML = `# Routes are matched by longest path_prefix first.
+routes:
+  - path_prefix: /api/
+    upstream: http://127.0.0.1:8080/api/v1/
+
+  # Fallback route for all other traffic.
+  - path_prefix: /
+    upstream: http://127.0.0.1:3000
 `
 
 type passwdEntry struct {
@@ -143,7 +139,7 @@ func Run(opts app.SetupOptions) error {
 
 func ensureEtcConfig(httpsdGroup int) error {
 	const etcDir = "/etc/httpsd"
-	const configPath = "/etc/httpsd/config.json"
+	const configPath = app.DefaultConfigPath
 
 	if err := os.MkdirAll(etcDir, 0o750); err != nil {
 		return fmt.Errorf("create %s: %w", etcDir, err)
@@ -157,7 +153,7 @@ func ensureEtcConfig(httpsdGroup int) error {
 	fmt.Println("ensured /etc/httpsd ownership=root:httpsd perms=750")
 
 	if _, err := os.Stat(configPath); errors.Is(err, os.ErrNotExist) {
-		if err := os.WriteFile(configPath, []byte(defaultConfigJSON), 0o640); err != nil {
+		if err := os.WriteFile(configPath, []byte(defaultConfigYAML), 0o640); err != nil {
 			return fmt.Errorf("write default config %s: %w", configPath, err)
 		}
 		if err := os.Chown(configPath, 0, httpsdGroup); err != nil {
