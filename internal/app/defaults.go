@@ -55,7 +55,7 @@ ExecStart=/opt/httpsd/current/sbin/httpsd
 ExecReload=/opt/httpsd/current/sbin/httpsdctl reload
 Restart=on-failure
 
-# Security: Give the binary permission to bind to ports 80/443
+# Security: grant low-port bind capability at service runtime
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 

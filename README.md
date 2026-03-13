@@ -165,7 +165,7 @@ Control-plane host setup (`httpsdctl setup`):
 4. `runSetup` ensures the `httpsd` user is a member of `tlskey` via `ensureUserInGroup`, then verifies the resulting account layout with `validateServiceIdentity` and `validateAccountDatabases`.
 5. `runSetup` checks that the configured TLS key and certificate files exist, then provisions `/etc/httpsd` and the default config file via `ensureEtcConfig`.
 6. `runSetup` stages the current binary into the versioned install tree with `ensureVersionedInstall`; that helper derives the versioned path from `app.Version` and `app.BuildTime` using `buildVersionDirName`, copies the executable into `/opt/httpsd/<version>/sbin/httpsd`, and refreshes `/opt/httpsd/current` to point at the newest installed version.
-7. `runSetup` grants `cap_net_bind_service` to the configured binary path with `ensureNetBindCapability` so `httpsd` can bind ports 80 and 443 without running as root.
+7. `runSetup` removes any file capabilities from the configured binary path with `ensureNoFileCapabilities`; low-port bind permission is then supplied only by systemd `AmbientCapabilities`.
 8. `runSetup` writes or validates the systemd unit with `ensureSystemdUnit`; if the unit changed, it runs `daemonReload` to execute `systemctl daemon-reload`.
 9. `runSetup` finishes by printing `setup complete` after the host account, config, binary install, capability, and systemd state all match the expected layout.
 

@@ -45,7 +45,7 @@ const (
 )
 
 // runSetup prepares the host for httpsd by creating accounts, fixing permissions,
-// installing capabilities, provisioning config, and updating the systemd unit.
+// clearing file capabilities, provisioning config, and updating the systemd unit.
 func runSetup(opts app.SetupOptions) error {
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("setup must be run as root because it modifies /etc/passwd, /etc/group, file ownership/permissions, Linux file capabilities (setcap), and systemd unit files")
@@ -113,10 +113,10 @@ func runSetup(opts app.SetupOptions) error {
 		fmt.Printf("ensured versioned binary install at %s\n", installedBinaryPath)
 	}
 
-	if err := ensureNetBindCapability(opts.BinaryPath); err != nil {
+	if err := ensureNoFileCapabilities(opts.BinaryPath); err != nil {
 		return err
 	}
-	fmt.Printf("ensured Linux capability cap_net_bind_service=+ep on %s\n", opts.BinaryPath)
+	fmt.Printf("ensured no file capabilities are set on %s (systemd AmbientCapabilities handles bind privileges)\n", opts.BinaryPath)
 
 	serviceChanged, err := ensureSystemdUnit(opts.ServicePath, app.ServiceUnitContent, opts.Force)
 	if err != nil {
@@ -372,13 +372,13 @@ func copyFile(src, dst string, mode os.FileMode) error {
 	return out.Close()
 }
 
-func ensureNetBindCapability(binaryPath string) error {
+func ensureNoFileCapabilities(binaryPath string) error {
 	if _, err := exec.LookPath("setcap"); err != nil {
 		return fmt.Errorf("setcap not found in PATH")
 	}
-	cmd := exec.Command("setcap", "cap_net_bind_service=+ep", binaryPath)
+	cmd := exec.Command("setcap", "-r", binaryPath)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("setcap on %s failed: %v: %s", binaryPath, err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("remove file capabilities on %s failed: %v: %s", binaryPath, err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
