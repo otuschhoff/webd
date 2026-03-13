@@ -9,6 +9,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,9 +66,9 @@ func RunLetsEncrypt(opts LetsEncryptOptions) error {
 
 	host := strings.TrimSpace(opts.Host)
 	if host == "" {
-		host, err = os.Hostname()
+		host, err = localFQDN()
 		if err != nil {
-			return fmt.Errorf("resolve local hostname: %w", err)
+			return fmt.Errorf("resolve local fqdn: %w", err)
 		}
 	}
 	host = strings.TrimSpace(host)
@@ -100,7 +101,11 @@ func RunLetsEncrypt(opts LetsEncryptOptions) error {
 	}
 
 	account := &acme.Account{}
-	if email := strings.TrimSpace(opts.Email); email != "" {
+	email := strings.TrimSpace(opts.Email)
+	if email == "" {
+		email = defaultACMEEmailForHost(host)
+	}
+	if email != "" {
 		account.Contact = []string{"mailto:" + email}
 	}
 	if _, err := acmeClient.Register(ctx, account, acme.AcceptTOS); err != nil {
@@ -236,4 +241,41 @@ func ensureChallengeDir(path string, uid, gid int) error {
 		return fmt.Errorf("chmod acme challenge dir %s: %w", clean, err)
 	}
 	return nil
+}
+
+func localFQDN() (string, error) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "", err
+	}
+	hostname = strings.TrimSpace(hostname)
+	if hostname == "" {
+		return "", fmt.Errorf("local hostname is empty")
+	}
+	if strings.Contains(hostname, ".") {
+		return hostname, nil
+	}
+
+	cname, err := net.LookupCNAME(hostname)
+	if err == nil {
+		fqdn := strings.TrimSuffix(strings.TrimSpace(cname), ".")
+		if fqdn != "" {
+			return fqdn, nil
+		}
+	}
+
+	return hostname, nil
+}
+
+func defaultACMEEmailForHost(host string) string {
+	h := strings.TrimSuffix(strings.TrimSpace(host), ".")
+	i := strings.IndexByte(h, '.')
+	if i < 0 || i+1 >= len(h) {
+		return ""
+	}
+	domain := h[i+1:]
+	if domain == "" {
+		return ""
+	}
+	return "it@" + domain
 }

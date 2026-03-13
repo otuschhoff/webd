@@ -81,8 +81,8 @@ func ExecuteControl() error {
 			return RunLetsEncrypt(letsEncryptOpts)
 		},
 	}
-	letsEncryptCmd.Flags().StringVar(&letsEncryptOpts.Host, "host", letsEncryptOpts.Host, "DNS host name to request (defaults to local hostname)")
-	letsEncryptCmd.Flags().StringVar(&letsEncryptOpts.Email, "email", letsEncryptOpts.Email, "Contact email for ACME account (optional)")
+	letsEncryptCmd.Flags().StringVar(&letsEncryptOpts.Host, "host", letsEncryptOpts.Host, "DNS host name to request (defaults to local FQDN)")
+	letsEncryptCmd.Flags().StringVar(&letsEncryptOpts.Email, "email", letsEncryptOpts.Email, "Contact email for ACME account (defaults to it@<domain-of-host>)")
 	letsEncryptCmd.Flags().StringVar(&letsEncryptOpts.DirectoryURL, "directory-url", letsEncryptOpts.DirectoryURL, "ACME directory URL")
 	letsEncryptCmd.Flags().StringVar(&letsEncryptOpts.ChallengeDir, "challenge-dir", letsEncryptOpts.ChallengeDir, "Directory where webd serves ACME HTTP-01 challenge files")
 	letsEncryptCmd.Flags().StringVar(&letsEncryptOpts.CertPath, "cert-path", letsEncryptOpts.CertPath, "Path to save certificate chain PEM")
