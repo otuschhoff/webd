@@ -46,10 +46,10 @@ const (
 )
 
 // runSetup prepares the host for webd by creating accounts, fixing permissions,
-// clearing file capabilities, provisioning config, and updating the systemd unit.
+// provisioning config, and updating the systemd unit.
 func runSetup(opts SetupOptions) error {
 	if os.Geteuid() != 0 {
-		return fmt.Errorf("setup must be run as root because it modifies /etc/passwd, /etc/group, file ownership/permissions, Linux file capabilities (setcap), and systemd unit files")
+		return fmt.Errorf("setup must be run as root because it modifies /etc/passwd, /etc/group, file ownership/permissions, and systemd unit files")
 	}
 
 	webdGroup, webdGroupCreated, err := ensureGroupExists("webd", -1)
@@ -106,18 +106,13 @@ func runSetup(opts SetupOptions) error {
 		return err
 	}
 
-	installedBinaryPath, err := ensureVersionedInstall()
+	installedWebdPath, installedWebctlPath, err := ensureVersionedInstall()
 	if err != nil {
 		return err
 	}
-	if installedBinaryPath != "" {
-		fmt.Printf("ensured versioned binary install at %s\n", installedBinaryPath)
+	if installedWebdPath != "" || installedWebctlPath != "" {
+		fmt.Printf("ensured versioned install webd=%s webctl=%s\n", installedWebdPath, installedWebctlPath)
 	}
-
-	if err := ensureNoFileCapabilities(opts.BinaryPath); err != nil {
-		return err
-	}
-	fmt.Printf("ensured no file capabilities are set on %s (systemd AmbientCapabilities handles bind privileges)\n", opts.BinaryPath)
 
 	if err := ensureSystemdVersionForUnit(ServiceUnitContent); err != nil {
 		return err
@@ -246,43 +241,52 @@ func detectSystemdMajorVersion() (int, error) {
 	return v, nil
 }
 
-func ensureVersionedInstall() (string, error) {
+func ensureVersionedInstall() (string, string, error) {
 	const installRoot = "/opt/webd"
 
 	versionDirName, err := buildVersionDirName()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	currentExecPath, err := os.Executable()
+	webctlSourcePath, webdSourcePath, err := resolveInstallSourceBinaries()
 	if err != nil {
-		return "", fmt.Errorf("resolve current executable: %w", err)
-	}
-	resolvedExecPath, err := filepath.EvalSymlinks(currentExecPath)
-	if err == nil {
-		currentExecPath = resolvedExecPath
+		return "", "", err
 	}
 
 	versionDir := filepath.Join(installRoot, versionDirName)
 	versionBinDir := filepath.Join(versionDir, "libexec")
-	versionBinaryPath := filepath.Join(versionBinDir, "webd")
+	versionSbinDir := filepath.Join(versionDir, "sbin")
+	versionWebdPath := filepath.Join(versionBinDir, "webd")
+	versionWebctlPath := filepath.Join(versionSbinDir, "webctl")
 	currentLink := filepath.Join(installRoot, "current")
 
 	if err := os.MkdirAll(versionBinDir, 0o755); err != nil {
-		return "", fmt.Errorf("create versioned binary dir %s: %w", versionBinDir, err)
+		return "", "", fmt.Errorf("create versioned binary dir %s: %w", versionBinDir, err)
+	}
+	if err := os.MkdirAll(versionSbinDir, 0o755); err != nil {
+		return "", "", fmt.Errorf("create versioned binary dir %s: %w", versionSbinDir, err)
 	}
 
-	if _, err := os.Stat(versionBinaryPath); errors.Is(err, os.ErrNotExist) {
-		if err := copyFile(currentExecPath, versionBinaryPath, 0o755); err != nil {
-			return "", fmt.Errorf("install binary to %s: %w", versionBinaryPath, err)
+	if _, err := os.Stat(versionWebdPath); errors.Is(err, os.ErrNotExist) {
+		if err := copyFile(webdSourcePath, versionWebdPath, 0o755); err != nil {
+			return "", "", fmt.Errorf("install webd binary to %s: %w", versionWebdPath, err)
 		}
 	} else if err != nil {
-		return "", fmt.Errorf("stat installed binary %s: %w", versionBinaryPath, err)
+		return "", "", fmt.Errorf("stat installed binary %s: %w", versionWebdPath, err)
+	}
+
+	if _, err := os.Stat(versionWebctlPath); errors.Is(err, os.ErrNotExist) {
+		if err := copyFile(webctlSourcePath, versionWebctlPath, 0o755); err != nil {
+			return "", "", fmt.Errorf("install webctl binary to %s: %w", versionWebctlPath, err)
+		}
+	} else if err != nil {
+		return "", "", fmt.Errorf("stat installed binary %s: %w", versionWebctlPath, err)
 	}
 
 	newestVersionDir, err := newestInstalledVersionDir(installRoot)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	needsLinkUpdate := true
@@ -296,19 +300,49 @@ func ensureVersionedInstall() (string, error) {
 			needsLinkUpdate = false
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", fmt.Errorf("read current symlink %s: %w", currentLink, err)
+		return "", "", fmt.Errorf("read current symlink %s: %w", currentLink, err)
 	}
 
 	if needsLinkUpdate {
 		if err := os.Remove(currentLink); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("remove existing current symlink %s: %w", currentLink, err)
+			return "", "", fmt.Errorf("remove existing current symlink %s: %w", currentLink, err)
 		}
 		if err := os.Symlink(newestVersionDir, currentLink); err != nil {
-			return "", fmt.Errorf("create current symlink %s -> %s: %w", currentLink, newestVersionDir, err)
+			return "", "", fmt.Errorf("create current symlink %s -> %s: %w", currentLink, newestVersionDir, err)
 		}
 	}
 
-	return versionBinaryPath, nil
+	return versionWebdPath, versionWebctlPath, nil
+}
+
+func resolveInstallSourceBinaries() (string, string, error) {
+	currentExecPath, err := os.Executable()
+	if err != nil {
+		return "", "", fmt.Errorf("resolve current executable: %w", err)
+	}
+	if resolvedExecPath, err := filepath.EvalSymlinks(currentExecPath); err == nil {
+		currentExecPath = resolvedExecPath
+	}
+
+	execDir := filepath.Dir(currentExecPath)
+	webctlSourcePath := currentExecPath
+	if filepath.Base(webctlSourcePath) != "webctl" {
+		candidate := filepath.Join(execDir, "webctl")
+		if _, err := os.Stat(candidate); err == nil {
+			webctlSourcePath = candidate
+		}
+	}
+
+	if _, err := os.Stat(webctlSourcePath); err != nil {
+		return "", "", fmt.Errorf("locate webctl binary %s: %w", webctlSourcePath, err)
+	}
+
+	webdSourcePath := filepath.Join(execDir, "webd")
+	if _, err := os.Stat(webdSourcePath); err != nil {
+		return "", "", fmt.Errorf("locate webd binary next to webctl (%s): %w", webdSourcePath, err)
+	}
+
+	return webctlSourcePath, webdSourcePath, nil
 }
 
 func buildVersionDirName() (string, error) {
@@ -413,17 +447,6 @@ func copyFile(src, dst string, mode os.FileMode) error {
 		return err
 	}
 	return out.Close()
-}
-
-func ensureNoFileCapabilities(binaryPath string) error {
-	if _, err := exec.LookPath("setcap"); err != nil {
-		return fmt.Errorf("setcap not found in PATH")
-	}
-	cmd := exec.Command("setcap", "-r", binaryPath)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("remove file capabilities on %s failed: %v: %s", binaryPath, err, strings.TrimSpace(string(out)))
-	}
-	return nil
 }
 
 func ensureGroupExists(name string, preferredGID int) (gid int, created bool, err error) {

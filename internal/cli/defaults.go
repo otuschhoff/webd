@@ -91,8 +91,6 @@ type SetupOptions struct {
 	TLSKeyPath string
 	// ServicePath is the systemd unit file path managed by setup.
 	ServicePath string
-	// BinaryPath is the installed webd binary path used for capability setup.
-	BinaryPath string
 	// Force allows setup to overwrite an existing, non-matching systemd unit file.
 	Force bool
 }
@@ -114,7 +112,6 @@ func DefaultSetupOptions() SetupOptions {
 		TLSCertPath: DefaultTLSSourceCertPath,
 		TLSKeyPath:  DefaultTLSSourceKeyPath,
 		ServicePath: DefaultServicePath,
-		BinaryPath:  DefaultBinaryPath,
 		Force:       false,
 	}
 }
