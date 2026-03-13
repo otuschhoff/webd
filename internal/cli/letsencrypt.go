@@ -17,7 +17,6 @@ import (
 	"golang.org/x/crypto/acme"
 
 	"webd/internal/app"
-	"webd/internal/syslogx"
 )
 
 // LetsEncryptOptions controls ACME certificate issuance and deployment.
@@ -50,7 +49,7 @@ func defaultLetsEncryptOptions() LetsEncryptOptions {
 // RunLetsEncrypt requests a Let's Encrypt certificate using HTTP-01 challenge,
 // stores cert+chain and key on disk, and optionally deploys them to a running webd.
 func RunLetsEncrypt(opts LetsEncryptOptions) error {
-	logs, err := syslogx.NewForCommand("webctl", false)
+	logs, err := app.NewForCommand("webctl", false)
 	if err != nil {
 		return fmt.Errorf("setup syslog loggers: %w", err)
 	}

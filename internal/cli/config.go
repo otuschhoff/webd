@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"webd/internal/schema"
+	"webd/internal/app"
 	"webd/internal/server"
 
 	"gopkg.in/yaml.v3"
@@ -50,7 +50,7 @@ func Load(path string) (*Config, error) {
 	if err := yaml.Unmarshal(b, &sourceRaw); err != nil {
 		return nil, fmt.Errorf("parse config %s as yaml: %w", path, err)
 	}
-	if err := schema.ValidateSourceConfig(normalizeYAMLValue(sourceRaw)); err != nil {
+	if err := app.ValidateSourceConfig(normalizeYAMLValue(sourceRaw)); err != nil {
 		return nil, fmt.Errorf("validate config %s against json schema: %w", path, err)
 	}
 

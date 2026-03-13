@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"webd/internal/schema"
+	"webd/internal/app"
 )
 
 type IPv4Range struct {
@@ -55,7 +55,7 @@ func LoadJSON(path string) (*Config, error) {
 	if err := json.Unmarshal(b, &raw); err != nil {
 		return nil, fmt.Errorf("parse runtime config %s as json: %w", path, err)
 	}
-	if err := schema.ValidateRuntimeConfig(raw); err != nil {
+	if err := app.ValidateRuntimeConfig(raw); err != nil {
 		return nil, fmt.Errorf("validate runtime config %s against json schema: %w", path, err)
 	}
 

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"webd/internal/app"
 	"webd/internal/server"
-	"webd/internal/syslogx"
 )
 
 const (
@@ -19,7 +19,7 @@ const (
 )
 
 func main() {
-	logs, err := syslogx.New("webd", false)
+	logs, err := app.New("webd", false)
 	if err != nil {
 		os.Exit(1)
 	}

@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"webd/internal/app"
-	"webd/internal/syslogx"
 )
 
 type routeProxy struct {
@@ -59,7 +58,7 @@ func (p *byteSlicePool) Put(b []byte) {
 
 // Run starts the HTTP and HTTPS reverse proxy servers and handles SIGHUP reloads.
 func Run(opts RunOptions) error {
-	logs, err := syslogx.New("webd", true)
+	logs, err := app.New("webd", true)
 	if err != nil {
 		return fmt.Errorf("setup syslog loggers: %w", err)
 	}

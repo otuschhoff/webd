@@ -1,4 +1,4 @@
-package schema
+package app
 
 import (
 	"encoding/json"

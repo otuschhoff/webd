@@ -20,9 +20,8 @@ import (
 	"syscall"
 	"time"
 
-	"webd/internal/schema"
+	"webd/internal/app"
 	"webd/internal/server"
-	"webd/internal/syslogx"
 )
 
 // Options controls root helper behavior for staging runtime TLS artifacts and
@@ -58,7 +57,7 @@ func DefaultOptions() Options {
 
 // Run locates running webd processes and sends them SIGHUP for in-place reload.
 func Run(opts Options) error {
-	logs, err := syslogx.NewForCommand("webctl", false)
+	logs, err := app.NewForCommand("webctl", false)
 	if err != nil {
 		return fmt.Errorf("setup syslog loggers: %w", err)
 	}
@@ -251,7 +250,7 @@ func stageConfigArtifact(opts Options, uid, gid int) error {
 	if err != nil {
 		return fmt.Errorf("build runtime config: %w", err)
 	}
-	if err := schema.ValidateRuntimeConfig(runtimeCfg); err != nil {
+	if err := app.ValidateRuntimeConfig(runtimeCfg); err != nil {
 		return fmt.Errorf("validate generated runtime config against json schema: %w", err)
 	}
 

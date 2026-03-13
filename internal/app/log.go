@@ -1,4 +1,4 @@
-package syslogx
+package app
 
 import (
 	"fmt"
