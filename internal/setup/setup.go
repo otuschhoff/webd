@@ -497,7 +497,7 @@ func ensureUserExists(name string, defaultGID int) (uid int, gid int, created bo
 	if err != nil {
 		return 0, 0, false, false, err
 	}
-	for i, e := range entries {
+	for _, e := range entries {
 		if e.name == name {
 			if uidWithinRange(e.uid, httpsdMinUID, httpsdMaxUID) {
 				return e.uid, e.gid, false, false, nil
@@ -506,7 +506,7 @@ func ensureUserExists(name string, defaultGID int) (uid int, gid int, created bo
 			if rangeErr != nil {
 				return 0, 0, false, false, fmt.Errorf("select replacement uid for %s: %w", name, rangeErr)
 			}
-			if err := rewritePasswdUID(lines, i, nextUID); err != nil {
+			if err := rewritePasswdUID(lines, name, nextUID); err != nil {
 				return 0, 0, false, false, fmt.Errorf("rewrite /etc/passwd uid for %s: %w", name, err)
 			}
 			return nextUID, e.gid, false, true, nil
@@ -830,21 +830,19 @@ func uidWithinRange(uid, minUID, maxUID int) bool {
 	return uid >= minUID && uid <= maxUID
 }
 
-func rewritePasswdUID(lines []string, entryIndex, newUID int) error {
-	matched := -1
+func rewritePasswdUID(lines []string, username string, newUID int) error {
 	for i, line := range lines {
 		parts := strings.Split(line, ":")
 		if len(parts) != 7 {
 			continue
 		}
-		if matched == entryIndex {
+		if parts[0] == username {
 			parts[2] = strconv.Itoa(newUID)
 			lines[i] = strings.Join(parts, ":")
 			return writeLines("/etc/passwd", lines)
 		}
-		matched++
 	}
-	return fmt.Errorf("passwd entry index %d not found", entryIndex)
+	return fmt.Errorf("user %s not found", username)
 }
 
 func gidInUse(entries []groupEntry, gid int) bool {
