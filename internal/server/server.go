@@ -187,11 +187,12 @@ func buildRouteProxies(cfg *proxycfg.Config) ([]routeProxy, error) {
 		if err != nil || u.Scheme == "" || u.Host == "" {
 			return nil, fmt.Errorf("invalid upstream for prefix %q: %q", prefix, r.Upstream)
 		}
-		upstream := u.String()
-		pool, err := newUpstreamPool(u)
-		if err != nil {
-			return nil, fmt.Errorf("prepare upstream pool for prefix %q: %w", prefix, err)
+		hostname := u.Hostname()
+		ip := net.ParseIP(hostname)
+		if ip == nil || ip.To4() == nil {
+			return nil, fmt.Errorf("upstream for prefix %q must use an IPv4 address in runtime config: %q", prefix, r.Upstream)
 		}
+		upstream := u.String()
 
 		proxy := httputil.NewSingleHostReverseProxy(u)
 		proxy.BufferPool = reverseProxyBufferPool
@@ -200,7 +201,7 @@ func buildRouteProxies(cfg *proxycfg.Config) ([]routeProxy, error) {
 			originalDirector(req)
 			setForwardedHeaders(req)
 		}
-		proxy.Transport = newUpstreamTransport(pool)
+		proxy.Transport = newStaticUpstreamTransport(u)
 		proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, proxyErr error) {
 			http.Error(w, "Bad Gateway", http.StatusBadGateway)
 			log.Printf("proxy_error upstream=%q path=%q err=%v", upstream, req.URL.Path, proxyErr)
@@ -214,6 +215,21 @@ func buildRouteProxies(cfg *proxycfg.Config) ([]routeProxy, error) {
 	})
 
 	return routes, nil
+}
+
+func newStaticUpstreamTransport(target *url.URL) http.RoundTripper {
+	base := http.DefaultTransport.(*http.Transport).Clone()
+	if strings.EqualFold(target.Scheme, "https") {
+		if base.TLSClientConfig == nil {
+			base.TLSClientConfig = &tls.Config{}
+		} else {
+			base.TLSClientConfig = base.TLSClientConfig.Clone()
+		}
+		if serverName := target.Hostname(); serverName != "" {
+			base.TLSClientConfig.ServerName = serverName
+		}
+	}
+	return base
 }
 
 func setForwardedHeaders(req *http.Request) {

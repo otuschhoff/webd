@@ -91,8 +91,8 @@ Runtime behavior highlights:
 
 - Access logs written to `/var/log/httpsd/access.log` with 1 MiB rotation.
 - TLS cert/key and routes are reloaded in-process on `SIGHUP`.
-- DNS upstream hostnames are refreshed ahead of TTL expiry; failed refreshes keep the last working IP set and retry with exponential backoff.
-- Multi-IP DNS answers are probed and each request randomly picks one healthy upstream IP.
+- `httpsdctl reload` resolves upstream hostnames and writes runtime config with IPv4 upstream targets.
+- `httpsd` loads only `/run/httpsd/config.json` and does not perform DNS lookups for upstream routing.
 - Upstream requests include standard proxy headers such as `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port`, `X-Real-IP`, and `Forwarded`.
 - `httpsd` accepts no flags/subcommands; control operations are in `httpsdctl`.
 - `httpsd` requires effective UID in the 500-999 range.

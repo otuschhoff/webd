@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -228,7 +229,12 @@ func stageConfigArtifact(opts Options, uid, gid int) error {
 		return fmt.Errorf("load config source %s: %w", opts.ConfigSource, err)
 	}
 
-	jsonConfig, err := json.MarshalIndent(cfg, "", "  ")
+	resolvedCfg, err := resolveConfigToIPv4(cfg)
+	if err != nil {
+		return fmt.Errorf("resolve upstreams to IPv4 for runtime config: %w", err)
+	}
+
+	jsonConfig, err := json.MarshalIndent(resolvedCfg, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal config json for %s: %w", opts.ConfigDest, err)
 	}
@@ -242,6 +248,82 @@ func stageConfigArtifact(opts Options, uid, gid int) error {
 	}
 
 	return nil
+}
+
+func resolveConfigToIPv4(cfg *proxycfg.Config) (*proxycfg.Config, error) {
+	resolved := &proxycfg.Config{Routes: make([]proxycfg.Route, 0, len(cfg.Routes))}
+	for _, route := range cfg.Routes {
+		upstream, err := resolveUpstreamToIPv4(route.Upstream)
+		if err != nil {
+			return nil, fmt.Errorf("route path_prefix=%q upstream=%q: %w", route.PathPrefix, route.Upstream, err)
+		}
+		resolved.Routes = append(resolved.Routes, proxycfg.Route{
+			PathPrefix: route.PathPrefix,
+			Upstream:   upstream,
+		})
+	}
+	return resolved, nil
+}
+
+func resolveUpstreamToIPv4(raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", fmt.Errorf("invalid upstream URL")
+	}
+
+	hostname := u.Hostname()
+	port := u.Port()
+	if port == "" {
+		switch strings.ToLower(u.Scheme) {
+		case "http":
+			port = "80"
+		case "https":
+			port = "443"
+		default:
+			return "", fmt.Errorf("unsupported scheme %q", u.Scheme)
+		}
+	}
+
+	resolvedIP, err := pickIPv4Address(hostname)
+	if err != nil {
+		return "", err
+	}
+	u.Host = net.JoinHostPort(resolvedIP, port)
+	return u.String(), nil
+}
+
+func pickIPv4Address(hostname string) (string, error) {
+	if ip := net.ParseIP(hostname); ip != nil {
+		v4 := ip.To4()
+		if v4 == nil {
+			return "", fmt.Errorf("upstream host %q is not IPv4", hostname)
+		}
+		return v4.String(), nil
+	}
+
+	ips, err := net.LookupIP(hostname)
+	if err != nil {
+		return "", fmt.Errorf("dns lookup failed: %w", err)
+	}
+	v4s := make([]string, 0, len(ips))
+	seen := make(map[string]struct{}, len(ips))
+	for _, ip := range ips {
+		v4 := ip.To4()
+		if v4 == nil {
+			continue
+		}
+		s := v4.String()
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		v4s = append(v4s, s)
+	}
+	if len(v4s) == 0 {
+		return "", fmt.Errorf("dns lookup returned no IPv4 addresses")
+	}
+	sort.Strings(v4s)
+	return v4s[0], nil
 }
 
 func validateTLSBundleOrder(certPath string) error {
