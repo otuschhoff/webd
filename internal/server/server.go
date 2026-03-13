@@ -30,6 +30,7 @@ type RunOptions = app.RunOptions
 
 type routeProxy struct {
 	prefix            string
+	redirectTarget    string
 	proxy             *httputil.ReverseProxy
 	allowedIPv4Ranges []IPv4Range
 }
@@ -83,7 +84,7 @@ func Run(opts RunOptions) error {
 		return fmt.Errorf("route config error: %w", err)
 	}
 	for i, route := range cfg.Routes {
-		opsLog.Printf("route configured index=%d path_prefix=%q upstream=%s", i, strings.TrimSpace(route.PathPrefix), formatUpstream(route.Upstream))
+		opsLog.Printf("route configured index=%d path_prefix=%q target=%s", i, strings.TrimSpace(route.PathPrefix), formatRouteTarget(route))
 	}
 
 	var activeRoutes atomic.Value
@@ -98,6 +99,10 @@ func Run(opts RunOptions) error {
 				if len(route.allowedIPv4Ranges) > 0 && !isClientIPv4Allowed(clientIP, route.allowedIPv4Ranges) {
 					http.Error(w, "Forbidden", http.StatusForbidden)
 					errLog.Printf("access_denied path=%q route_prefix=%q client_ip=%q reason=client_ip_not_allowed", r.URL.Path, route.prefix, clientIP)
+					return
+				}
+				if route.redirectTarget != "" {
+					http.Redirect(w, r, route.redirectTarget, http.StatusMovedPermanently)
 					return
 				}
 				route.proxy.ServeHTTP(w, r)
@@ -207,7 +212,21 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			prefix = "/"
 		}
 
-		targetURL := upstreamURL(r.Upstream)
+		if strings.TrimSpace(r.Redirect) != "" {
+			routes = append(routes, routeProxy{
+				prefix:            prefix,
+				redirectTarget:    strings.TrimSpace(r.Redirect),
+				allowedIPv4Ranges: append([]IPv4Range(nil), r.AllowedIPv4Ranges...),
+			})
+			continue
+		}
+
+		if r.Upstream == nil {
+			return nil, fmt.Errorf("route for prefix %q has no upstream", prefix)
+		}
+		upstreamCfg := *r.Upstream
+
+		targetURL := upstreamURL(upstreamCfg)
 		upstream := targetURL.String()
 
 		proxy := httputil.NewSingleHostReverseProxy(targetURL)
@@ -217,7 +236,7 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			originalDirector(req)
 			setForwardedHeaders(req)
 		}
-		transport, transportErr := newStaticUpstreamTransport(r.Upstream)
+		transport, transportErr := newStaticUpstreamTransport(upstreamCfg)
 		if transportErr != nil {
 			return nil, fmt.Errorf("configure transport for prefix %q: %w", prefix, transportErr)
 		}
@@ -314,6 +333,16 @@ func formatUpstream(upstream Upstream) string {
 		Path:     upstream.Path,
 		RawQuery: upstream.RawQuery,
 	}).String()
+}
+
+func formatRouteTarget(route Route) string {
+	if strings.TrimSpace(route.Redirect) != "" {
+		return "redirect:" + strings.TrimSpace(route.Redirect)
+	}
+	if route.Upstream == nil {
+		return "<invalid>"
+	}
+	return formatUpstream(*route.Upstream)
 }
 
 func proxyScheme(protocol string) string {

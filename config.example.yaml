@@ -26,6 +26,11 @@ routes:
   #     name: server-ws
   #     cert_path: /etc/pki/ca-trust/source/anchors/server-ws.crt
 
+  # Example permanent redirect route.
+  # Exactly one of upstream or redirect must be set per route.
+  # - path_prefix: /legacy/
+  #   redirect: https://www.example.com/new-home/
+
   # Fallback for everything else.
   - path_prefix: /
     upstream: http://127.0.0.1:3000

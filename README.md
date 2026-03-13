@@ -70,6 +70,8 @@ routes:
       cert_path: /etc/pki/ca-trust/source/anchors/internal-api.crt
   - path_prefix: /websocket/
     upstream: wss://server.eu.example.com:9000/websocket/
+  - path_prefix: /legacy/
+    redirect: https://www.example.com/new-home/
   - path_prefix: /
     upstream: http://127.0.0.1:3000
 ```
@@ -78,11 +80,14 @@ Rules:
 
 - `routes` must contain at least one entry.
 - `path_prefix` must begin with `/` (empty is treated as `/`).
+- Each route must set exactly one of `upstream` or `redirect`.
 - `upstream` must be a valid absolute URL.
+- `redirect` must be a valid absolute URL and returns `301 Moved Permanently`.
 - Supported upstream schemes are `http`, `https`, `ws`, and `wss`.
 - `allowed_ipv4` is optional and can include IPv4 addresses, IPv4 ranges (`start-end`), and IPv4 CIDRs.
 - If a request matches a route prefix with `allowed_ipv4` and the client IPv4 is not in the allow-list, `httpsd` returns `403 Forbidden` for that route.
 - `trusted_ca` is optional and supported only for `https` and `wss` upstreams.
+- `trusted_ca` cannot be used with `redirect` routes.
 - `trusted_ca.name` may contain only letters, digits, `.`, `_`, and `-`.
 - `trusted_ca.cert_path` must point to a PEM CA bundle that `httpsdctl reload` can read.
 - Longest `path_prefix` wins.
@@ -176,6 +181,17 @@ routes:
     upstream: http://127.0.0.1:3000
 ```
 
+Permanent redirect route:
+
+```yaml
+routes:
+  - path_prefix: /old-docs/
+    redirect: https://docs.example.com/new-location/
+
+  - path_prefix: /
+    upstream: http://127.0.0.1:3000
+```
+
 TLS notes:
 
 - `--tls-cert` should contain the server certificate chain PEM bundle.
@@ -215,7 +231,7 @@ Server startup (`httpsd`):
 1. `cmd/httpsd/main.go:main` creates syslog loggers with `syslogx.New`, rejects flags/subcommands, validates the effective UID range, and verifies the required runtime files under `/run/httpsd`.
 2. `main` builds `app.RunOptions` and calls `server.Run`.
 3. `internal/server/server.go:Run` creates the daemon loggers, loads the runtime JSON with `LoadJSON`, and validates it through `internal/server/config.go:Validate`.
-4. `Run` builds reverse proxies with `buildRouteProxies`; each route uses `upstreamURL`, `httputil.NewSingleHostReverseProxy`, a wrapped `Director` that calls `setForwardedHeaders`, and `newStaticUpstreamTransport`.
+4. `Run` builds route handlers with `buildRouteProxies`; upstream routes use `upstreamURL`, `httputil.NewSingleHostReverseProxy`, a wrapped `Director` that calls `setForwardedHeaders`, and `newStaticUpstreamTransport`, while redirect routes keep only a redirect target URL.
 5. `newStaticUpstreamTransport` clones `http.DefaultTransport`, dials only the staged `ipv4_addresses`, and, for HTTPS upstreams, loads the staged CA bundle with `loadTrustedCertPool` and sets `TLSClientConfig.ServerName` to the upstream hostname.
 6. `Run` wraps the router with `accessLogMiddleware`, creates the TLS reloader with `newCertReloader`, then starts the cleartext server with `http.Server.ListenAndServe` and the TLS server with `tls.Listen` plus `http.Server.Serve`.
 7. `Run` also installs a `SIGHUP` handler that reloads the runtime config with `LoadJSON`, rebuilds routes with `buildRouteProxies`, swaps them atomically, and refreshes the serving certificate with `certReloader.Reload`.
@@ -223,7 +239,7 @@ Server startup (`httpsd`):
 HTTP request proxying:
 
 1. The per-request handler created inside `internal/server/server.go:Run` reads the current route table from `atomic.Value` and picks the first prefix match, after `buildRouteProxies` sorted routes by descending prefix length.
-2. The matched `routeProxy.proxy.ServeHTTP` executes the `httputil.ReverseProxy` created by `buildRouteProxies`.
+2. The matched route either returns `301 Moved Permanently` to its configured `redirect` URL or executes `routeProxy.proxy.ServeHTTP` for upstream proxy routes.
 3. The proxy `Director` first applies the standard upstream rewrite from `httputil.NewSingleHostReverseProxy`, then calls `setForwardedHeaders` to set `X-Real-IP`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port`, and `Forwarded`.
 4. The proxy transport is the `http.RoundTripper` returned by `newStaticUpstreamTransport`; it uses a custom `DialContext` to try the staged IPv4 list in order and connects to `hostname:port` only for TLS verification and URL shaping, not for DNS resolution.
 5. For HTTPS upstreams, the transport verifies the peer certificate against either the system pool or the staged `trusted_ca` bundle loaded by `loadTrustedCertPool`.
@@ -238,7 +254,7 @@ Control-plane reload (`httpsdctl reload` and `--prepare-only`):
 4. If `PrepareOnly` is false, `Run` locates live daemon PIDs with `findHTTPSDPIDs` and verifies that the configured HTTP/HTTPS listen ports are owned by those processes with `ensurePortsBoundByHTTPSD`.
 5. `Run` stages all runtime artifacts through `stageTLSArtifacts`.
 6. `stageTLSArtifacts` first calls `stageConfigArtifact`, which loads the YAML source config with `internal/cli/config.go:Load`, converts it to runtime JSON with `buildRuntimeConfig`, and writes `/run/httpsd/config.json` atomically.
-7. `buildRuntimeConfig` processes each route with `buildRuntimeUpstream`, translates `allowed_ipv4` entries into numeric `start`/`end` IPv4 ranges for the runtime JSON, resolves `ipv4_addresses` with `lookupIPv4Addresses`, and, when `trusted_ca` is configured, stages a runtime CA file through `stageTrustedCA`.
+7. `buildRuntimeConfig` translates `allowed_ipv4` entries into numeric `start`/`end` IPv4 ranges for the runtime JSON, emits redirect routes directly, and for upstream routes uses `buildRuntimeUpstream` to resolve `ipv4_addresses` and stage `trusted_ca` runtime files when configured.
 8. `stageTrustedCA` verifies the upstream against the local CA file by calling `fetchVerifiedUpstreamCACerts`; that helper reads the configured PEM bundle, fetches the upstream-presented chain with `fetchUpstreamPeerCertificates`, verifies it with `x509.Certificate.Verify`, optionally extends it with `appendLocalParentChain`, and writes `/run/httpsd/ca-<name>.crt` with `writeTrustedCAFile`.
 9. After the runtime JSON is staged, `stageTLSArtifacts` validates the configured server certificate chain order with `validateTLSBundleOrder`, then copies the TLS certificate and key into `/run/httpsd/tls.crt` and `/run/httpsd/tls.key` with `copyFileAtomic` and fixes ownership.
 10. If `PrepareOnly` is true, `Run` stops here after logging `prepare-only mode complete`; no process discovery or signal delivery happens.

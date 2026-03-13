@@ -22,8 +22,11 @@ type TrustedCA struct {
 type Route struct {
 	// PathPrefix is matched against the incoming request path.
 	PathPrefix string `yaml:"path_prefix" json:"path_prefix"`
-	// Upstream is the absolute HTTP or HTTPS upstream base URL.
-	Upstream string `yaml:"upstream" json:"upstream"`
+	// Upstream is the absolute HTTP/HTTPS/WS/WSS upstream base URL.
+	Upstream string `yaml:"upstream,omitempty" json:"upstream,omitempty"`
+	// Redirect is an absolute URL for HTTP 301 redirects when this route matches.
+	// Exactly one of Upstream or Redirect must be set.
+	Redirect string `yaml:"redirect,omitempty" json:"redirect,omitempty"`
 	// AllowedIPv4 optionally restricts this route to specific IPv4 addresses, ranges, and/or CIDRs.
 	AllowedIPv4 []string `yaml:"allowed_ipv4,omitempty" json:"allowed_ipv4,omitempty"`
 	// TrustedCA identifies a PEM CA bundle that should verify this upstream TLS server.
@@ -68,13 +71,30 @@ func Validate(cfg *Config) error {
 			return fmt.Errorf("path_prefix must begin with '/': %q", prefix)
 		}
 
-		u, err := url.Parse(r.Upstream)
-		if err != nil || u.Scheme == "" || u.Host == "" {
-			return fmt.Errorf("invalid upstream for prefix %q: %q", prefix, r.Upstream)
+		upstreamRaw := strings.TrimSpace(r.Upstream)
+		redirectRaw := strings.TrimSpace(r.Redirect)
+		hasUpstream := upstreamRaw != ""
+		hasRedirect := redirectRaw != ""
+		if hasUpstream == hasRedirect {
+			return fmt.Errorf("exactly one of upstream or redirect must be set for prefix %q", prefix)
 		}
-		scheme := strings.ToLower(strings.TrimSpace(u.Scheme))
-		if scheme != "http" && scheme != "https" && scheme != "ws" && scheme != "wss" {
-			return fmt.Errorf("invalid upstream scheme for prefix %q: %q", prefix, r.Upstream)
+
+		scheme := ""
+		if hasUpstream {
+			u, err := url.Parse(upstreamRaw)
+			if err != nil || u.Scheme == "" || u.Host == "" {
+				return fmt.Errorf("invalid upstream for prefix %q: %q", prefix, r.Upstream)
+			}
+			scheme = strings.ToLower(strings.TrimSpace(u.Scheme))
+			if scheme != "http" && scheme != "https" && scheme != "ws" && scheme != "wss" {
+				return fmt.Errorf("invalid upstream scheme for prefix %q: %q", prefix, r.Upstream)
+			}
+		}
+		if hasRedirect {
+			u, err := url.Parse(redirectRaw)
+			if err != nil || u.Scheme == "" || u.Host == "" {
+				return fmt.Errorf("invalid redirect for prefix %q: %q", prefix, r.Redirect)
+			}
 		}
 
 		for _, raw := range r.AllowedIPv4 {
@@ -84,6 +104,9 @@ func Validate(cfg *Config) error {
 		}
 
 		if r.TrustedCA != nil {
+			if hasRedirect {
+				return fmt.Errorf("trusted_ca cannot be used with redirect for prefix %q", prefix)
+			}
 			caName := strings.TrimSpace(r.TrustedCA.Name)
 			if caName == "" {
 				return fmt.Errorf("trusted_ca.name is required for prefix %q", prefix)

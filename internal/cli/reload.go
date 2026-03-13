@@ -272,18 +272,28 @@ func buildRuntimeConfig(cfg *Config, uid, gid int) (*server.Config, error) {
 	resolved := &server.Config{Routes: make([]server.Route, 0, len(cfg.Routes))}
 	stagedCAs := make(map[string]*stagedTrustedCA)
 	for _, route := range cfg.Routes {
-		upstream, err := buildRuntimeUpstream(route, uid, gid, stagedCAs)
-		if err != nil {
-			return nil, fmt.Errorf("route path_prefix=%q upstream=%q: %w", route.PathPrefix, route.Upstream, err)
-		}
 		allowedIPv4Ranges, err := translateAllowedIPv4(route.AllowedIPv4)
 		if err != nil {
 			return nil, fmt.Errorf("route path_prefix=%q allowed_ipv4: %w", route.PathPrefix, err)
 		}
+
+		if strings.TrimSpace(route.Redirect) != "" {
+			resolved.Routes = append(resolved.Routes, server.Route{
+				PathPrefix:        route.PathPrefix,
+				AllowedIPv4Ranges: allowedIPv4Ranges,
+				Redirect:          strings.TrimSpace(route.Redirect),
+			})
+			continue
+		}
+
+		upstream, err := buildRuntimeUpstream(route, uid, gid, stagedCAs)
+		if err != nil {
+			return nil, fmt.Errorf("route path_prefix=%q upstream=%q: %w", route.PathPrefix, route.Upstream, err)
+		}
 		resolved.Routes = append(resolved.Routes, server.Route{
 			PathPrefix:        route.PathPrefix,
 			AllowedIPv4Ranges: allowedIPv4Ranges,
-			Upstream:          upstream,
+			Upstream:          &upstream,
 		})
 	}
 	return resolved, nil
