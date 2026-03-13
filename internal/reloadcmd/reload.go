@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -71,6 +72,9 @@ func Run(opts Options) error {
 	if err := ensureRuntimeTLSDir(opts, runUID, runGID); err != nil {
 		return err
 	}
+	if err := ensureRuntimeDevLogBindMount(opts, runUID, runGID); err != nil {
+		return err
+	}
 
 	var pids []int
 	if !opts.PrepareOnly {
@@ -111,6 +115,93 @@ func Run(opts Options) error {
 		return fmt.Errorf("could not signal any running httpsd process")
 	}
 	return nil
+}
+
+func ensureRuntimeDevLogBindMount(opts Options, uid, gid int) error {
+	runtimeDir := filepath.Clean(filepath.Dir(opts.TLSCertDest))
+	devDir := filepath.Join(runtimeDir, "dev")
+	target := filepath.Join(devDir, "log")
+
+	if err := os.MkdirAll(devDir, 0o750); err != nil {
+		return fmt.Errorf("create runtime dev directory %s: %w", devDir, err)
+	}
+	if err := os.Chown(devDir, uid, gid); err != nil {
+		return fmt.Errorf("chown runtime dev directory %s: %w", devDir, err)
+	}
+	if err := os.Chmod(devDir, 0o750); err != nil {
+		return fmt.Errorf("chmod runtime dev directory %s: %w", devDir, err)
+	}
+
+	if st, err := os.Lstat(target); err == nil {
+		if st.IsDir() {
+			return fmt.Errorf("runtime dev log target is a directory: %s", target)
+		}
+	} else if errors.Is(err, os.ErrNotExist) {
+		f, createErr := os.OpenFile(target, os.O_CREATE|os.O_RDONLY, 0o640)
+		if createErr != nil {
+			return fmt.Errorf("create runtime dev log target %s: %w", target, createErr)
+		}
+		_ = f.Close()
+		if err := os.Chown(target, uid, gid); err != nil {
+			return fmt.Errorf("chown runtime dev log target %s: %w", target, err)
+		}
+		if err := os.Chmod(target, 0o640); err != nil {
+			return fmt.Errorf("chmod runtime dev log target %s: %w", target, err)
+		}
+	} else {
+		return fmt.Errorf("stat runtime dev log target %s: %w", target, err)
+	}
+
+	mounted, src, err := mountSourceForTarget(target)
+	if err != nil {
+		return err
+	}
+	if mounted {
+		if src == "/dev/log" {
+			return nil
+		}
+		return fmt.Errorf("runtime dev log target %s is already mounted from %s, expected /dev/log", target, src)
+	}
+
+	if err := syscall.Mount("/dev/log", target, "", syscall.MS_BIND, ""); err != nil {
+		return fmt.Errorf("bind mount /dev/log to %s: %w", target, err)
+	}
+	return nil
+}
+
+func mountSourceForTarget(target string) (bool, string, error) {
+	f, err := os.Open("/proc/self/mountinfo")
+	if err != nil {
+		return false, "", fmt.Errorf("open /proc/self/mountinfo: %w", err)
+	}
+	defer f.Close()
+
+	target = filepath.Clean(target)
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.SplitN(line, " - ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		left := strings.Fields(parts[0])
+		if len(left) < 5 {
+			continue
+		}
+		mountPoint := left[4]
+		if filepath.Clean(mountPoint) != target {
+			continue
+		}
+		right := strings.Fields(parts[1])
+		if len(right) < 2 {
+			return true, "", nil
+		}
+		return true, right[1], nil
+	}
+	if err := scanner.Err(); err != nil {
+		return false, "", fmt.Errorf("scan /proc/self/mountinfo: %w", err)
+	}
+	return false, "", nil
 }
 
 func validateRunTLSDirs(opts Options) error {
