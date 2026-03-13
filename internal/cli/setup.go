@@ -52,23 +52,23 @@ func runSetup(opts SetupOptions) error {
 		return fmt.Errorf("setup must be run as root because it modifies /etc/passwd, /etc/group, file ownership/permissions, and systemd unit files")
 	}
 
-	webdGroup, webdGroupCreated, err := ensureGroupExists("webd", -1)
+	webdGroup, webdGroupCreated, err := ensureGroupExists(defaultServiceGroup, -1)
 	if err != nil {
 		return err
 	}
 	if webdGroupCreated {
-		fmt.Printf("created group webd gid=%d\n", webdGroup)
+		fmt.Printf("created group %s gid=%d\n", defaultServiceGroup, webdGroup)
 	}
 
-	webdUID, webdPrimaryGID, webdUserCreated, webdUIDChanged, err := ensureUserExists("webd", webdGroup)
+	webdUID, webdPrimaryGID, webdUserCreated, webdUIDChanged, err := ensureUserExists(defaultServiceUser, webdGroup)
 	if err != nil {
 		return err
 	}
 	if webdUserCreated {
-		fmt.Printf("created user webd uid=%d gid=%d\n", webdUID, webdPrimaryGID)
+		fmt.Printf("created user %s uid=%d gid=%d\n", defaultServiceUser, webdUID, webdPrimaryGID)
 	}
 	if webdUIDChanged {
-		fmt.Printf("updated user webd uid=%d gid=%d to enforce allowed uid range %d-%d\n", webdUID, webdPrimaryGID, webdMinUID, webdMaxUID)
+		fmt.Printf("updated user %s uid=%d gid=%d to enforce allowed uid range %d-%d\n", defaultServiceUser, webdUID, webdPrimaryGID, webdMinUID, webdMaxUID)
 	}
 
 	tlskeyGID, tlskeyCreated, err := ensureGroupExists("tlskey", -1)
@@ -79,18 +79,18 @@ func runSetup(opts SetupOptions) error {
 		fmt.Printf("created group tlskey gid=%d\n", tlskeyGID)
 	}
 
-	membershipChanged, err := ensureUserInGroup("webd", "tlskey")
+	membershipChanged, err := ensureUserInGroup(defaultServiceUser, "tlskey")
 	if err != nil {
 		return err
 	}
 	if membershipChanged {
-		fmt.Println("added user webd to group tlskey")
+		fmt.Printf("added user %s to group tlskey\n", defaultServiceUser)
 	}
 
-	if err := validateServiceIdentity("webd", "webd", "tlskey"); err != nil {
+	if err := validateServiceIdentity(defaultServiceUser, defaultServiceGroup, "tlskey"); err != nil {
 		return err
 	}
-	if err := validateAccountDatabases("webd", "tlskey"); err != nil {
+	if err := validateAccountDatabases(defaultServiceUser, "tlskey"); err != nil {
 		return err
 	}
 
@@ -137,26 +137,26 @@ func runSetup(opts SetupOptions) error {
 }
 
 func ensureEtcConfig(webdGroup int) error {
-	const etcDir = "/etc/webd"
+	const etcDir = defaultEtcDir
 	const configPath = DefaultConfigPath
 
 	if err := os.MkdirAll(etcDir, 0o750); err != nil {
 		return fmt.Errorf("create %s: %w", etcDir, err)
 	}
 	if err := os.Chown(etcDir, 0, webdGroup); err != nil {
-		return fmt.Errorf("chown %s to root:webd: %w", etcDir, err)
+		return fmt.Errorf("chown %s to root:%s: %w", etcDir, defaultServiceGroup, err)
 	}
 	if err := os.Chmod(etcDir, 0o750); err != nil {
 		return fmt.Errorf("chmod %s to 0750: %w", etcDir, err)
 	}
-	fmt.Println("ensured /etc/webd ownership=root:webd perms=750")
+	fmt.Printf("ensured %s ownership=root:%s perms=750\n", etcDir, defaultServiceGroup)
 
 	if _, err := os.Stat(configPath); errors.Is(err, os.ErrNotExist) {
 		if err := os.WriteFile(configPath, []byte(defaultConfigYAML), 0o640); err != nil {
 			return fmt.Errorf("write default config %s: %w", configPath, err)
 		}
 		if err := os.Chown(configPath, 0, webdGroup); err != nil {
-			return fmt.Errorf("chown %s to root:webd: %w", configPath, err)
+			return fmt.Errorf("chown %s to root:%s: %w", configPath, defaultServiceGroup, err)
 		}
 		fmt.Printf("deployed config example to %s\n", configPath)
 	} else if err != nil {

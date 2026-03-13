@@ -1,13 +1,27 @@
 package cli
 
-import "webd/internal/server"
+import (
+	"fmt"
+	"path"
+
+	"webd/internal/server"
+)
 
 // Base paths used to derive default filesystem locations.
 const (
-	defaultEtcDir            = "/etc/webd"
-	defaultRuntimeDir        = "/run/webd"
-	defaultInstallCurrentDir = "/opt/webd/current"
+	defaultAppName           = "webd"
+	defaultServiceUser       = defaultAppName
+	defaultServiceGroup      = defaultAppName
+	defaultInstallRootDir    = "/opt/" + defaultAppName
+	defaultEtcDir            = "/etc/" + defaultAppName
+	defaultRuntimeDir        = "/run/" + defaultAppName
+	defaultInstallCurrentDir = defaultInstallRootDir + "/current"
 	defaultLibexecDir        = defaultInstallCurrentDir + "/libexec"
+	defaultSbinDir           = defaultInstallCurrentDir + "/sbin"
+
+	defaultSystemdJournalDevLogPath = "/run/systemd/journal/dev-log"
+	defaultServiceMemoryMaxMiB      = 32
+	defaultServiceGoMemPercent      = 75
 )
 
 // Public defaults shared by daemon and control-plane commands.
@@ -22,45 +36,57 @@ const (
 	DefaultRuntimeTrustedCADir = defaultRuntimeDir
 	DefaultTLSCertPath         = DefaultRuntimeTLSCertPath
 	DefaultTLSKeyPath          = DefaultRuntimeTLSKeyPath
-	DefaultRunUser             = "webd"
+	DefaultRunUser             = defaultServiceUser
 	DefaultHTTPAddr            = ":80"
 	DefaultHTTPSAddr           = ":443"
 	DefaultBinaryPath          = defaultLibexecDir + "/webd"
-	DefaultServicePath         = "/etc/systemd/system/webd.service"
+	DefaultWebctlPath          = defaultSbinDir + "/webctl"
+	DefaultServicePath         = "/etc/systemd/system/" + defaultAppName + ".service"
 )
 
 // ServiceUnitContent is the desired systemd unit file content written by setup.
-const ServiceUnitContent = `[Unit]
+var ServiceUnitContent = buildServiceUnitContent()
+
+func buildServiceUnitContent() string {
+	runtimeDirName := path.Base(defaultRuntimeDir)
+	memoryMax := fmt.Sprintf("%dM", defaultServiceMemoryMaxMiB)
+	goMemLimitMiB := defaultServiceMemoryMaxMiB * defaultServiceGoMemPercent / 100
+	if goMemLimitMiB < 1 {
+		goMemLimitMiB = 1
+	}
+	goMemLimit := fmt.Sprintf("%dMiB", goMemLimitMiB)
+
+	return fmt.Sprintf(`[Unit]
 Description=HTTPS Proxy
 After=network.target network-online.target
 Requires=network-online.target
 
 [Service]
 Type=simple
-User=webd
-Group=webd
+User=%s
+Group=%s
 PermissionsStartOnly=true
-SyslogIdentifier=webd
+SyslogIdentifier=%s
 StandardOutput=journal
 StandardError=journal
-RuntimeDirectory=webd
+RuntimeDirectory=%s
 RuntimeDirectoryMode=0750
-RootDirectory=/run/webd
+RootDirectory=%s
 RootDirectoryStartOnly=true
 WorkingDirectory=/
 PrivateDevices=true
 ProtectProc=invisible
 ProcSubset=pid
-BindReadOnlyPaths=/opt/webd/current/libexec/webd
-BindReadOnlyPaths=/opt/webd/current/sbin/webctl
+BindReadOnlyPaths=%s
+BindReadOnlyPaths=%s
 BindReadOnlyPaths=/dev/log
-BindReadOnlyPaths=/run/systemd/journal/dev-log:/dev/log
+BindReadOnlyPaths=%s:/dev/log
 TemporaryFileSystem=/tmp
 TemporaryFileSystem=/run
 # Run reload helpers with full privileges outside service sandbox.
-ExecStartPre=+/opt/webd/current/sbin/webctl reload --prepare-only
-ExecStart=/opt/webd/current/libexec/webd
-ExecReload=+/opt/webd/current/sbin/webctl reload
+ExecStartPre=+%s reload --prepare-only
+ExecStart=%s
+ExecReload=+%s reload
 Restart=on-failure
 
 # Security: grant low-port bind capability at service runtime
@@ -79,8 +105,8 @@ SystemCallFilter=@system-service @network-io @file-system @signal @process
 SystemCallFilter=~@clock @debug @module @mount @obsolete @privileged @raw-io @reboot @swap
 
 # Resources
-MemoryMax=32M
-Environment=GOMEMLIMIT=24MiB
+MemoryMax=%s
+Environment=GOMEMLIMIT=%s
 
 # Jailing
 ProtectSystem=strict
@@ -88,7 +114,22 @@ ProtectHome=true
 
 [Install]
 WantedBy=multi-user.target
-`
+`,
+		defaultServiceUser,
+		defaultServiceGroup,
+		defaultAppName,
+		runtimeDirName,
+		defaultRuntimeDir,
+		DefaultBinaryPath,
+		DefaultWebctlPath,
+		defaultSystemdJournalDevLogPath,
+		DefaultWebctlPath,
+		DefaultBinaryPath,
+		DefaultWebctlPath,
+		memoryMax,
+		goMemLimit,
+	)
+}
 
 // SetupOptions contains host-level paths used by the setup subcommand.
 type SetupOptions struct {
