@@ -1,4 +1,4 @@
-module httpsd
+module webd
 
 go 1.25.4
 

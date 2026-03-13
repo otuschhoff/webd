@@ -20,8 +20,8 @@ import (
 	"syscall"
 	"time"
 
-	"httpsd/internal/app"
-	"httpsd/internal/syslogx"
+	"webd/internal/app"
+	"webd/internal/syslogx"
 )
 
 // RunOptions defines daemon runtime options accepted by Run.
@@ -57,7 +57,7 @@ func (p *byteSlicePool) Put(b []byte) {
 
 // Run starts the HTTP and HTTPS reverse proxy servers and handles SIGHUP reloads.
 func Run(opts RunOptions) error {
-	logs, err := syslogx.New("httpsd", true)
+	logs, err := syslogx.New("webd", true)
 	if err != nil {
 		return fmt.Errorf("setup syslog loggers: %w", err)
 	}
@@ -129,8 +129,8 @@ func Run(opts RunOptions) error {
 		},
 	}
 
-	opsLog.Printf("httpsd version=%s", app.VersionString())
-	opsLog.Printf("httpsd starting http=%s https=%s config=%s routes=%d", opts.HTTPAddr, opts.HTTPSAddr, opts.ConfigPath, len(routes))
+	opsLog.Printf("webd version=%s", app.VersionString())
+	opsLog.Printf("webd starting http=%s https=%s config=%s routes=%d", opts.HTTPAddr, opts.HTTPSAddr, opts.ConfigPath, len(routes))
 	opsLog.Printf("reload enabled: send SIGHUP to reload TLS cert/key and proxy config")
 
 	sigCh := make(chan os.Signal, 1)

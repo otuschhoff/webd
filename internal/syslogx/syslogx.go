@@ -94,7 +94,7 @@ func runningUnderSystemd() bool {
 }
 
 func dialSyslogWriter(priority syslog.Priority, tag string) (*syslog.Writer, error) {
-	for _, addr := range []string{"/run/httpsd/dev/log", "/dev/log"} {
+	for _, addr := range []string{"/run/webd/dev/log", "/dev/log"} {
 		writer, err := syslog.Dial("unixgram", addr, priority, tag)
 		if err == nil {
 			return writer, nil

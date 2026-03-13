@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"httpsd/internal/app"
+	"webd/internal/app"
 )
 
 const defaultConfigYAML = `# Routes are matched by longest path_prefix first.
@@ -40,34 +40,34 @@ type groupEntry struct {
 }
 
 const (
-	httpsdMinUID = 500
-	httpsdMaxUID = 999
+	webdMinUID = 500
+	webdMaxUID = 999
 )
 
-// runSetup prepares the host for httpsd by creating accounts, fixing permissions,
+// runSetup prepares the host for webd by creating accounts, fixing permissions,
 // clearing file capabilities, provisioning config, and updating the systemd unit.
 func runSetup(opts app.SetupOptions) error {
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("setup must be run as root because it modifies /etc/passwd, /etc/group, file ownership/permissions, Linux file capabilities (setcap), and systemd unit files")
 	}
 
-	httpsdGroup, httpsdGroupCreated, err := ensureGroupExists("httpsd", -1)
+	webdGroup, webdGroupCreated, err := ensureGroupExists("webd", -1)
 	if err != nil {
 		return err
 	}
-	if httpsdGroupCreated {
-		fmt.Printf("created group httpsd gid=%d\n", httpsdGroup)
+	if webdGroupCreated {
+		fmt.Printf("created group webd gid=%d\n", webdGroup)
 	}
 
-	httpsdUID, httpsdPrimaryGID, httpsdUserCreated, httpsdUIDChanged, err := ensureUserExists("httpsd", httpsdGroup)
+	webdUID, webdPrimaryGID, webdUserCreated, webdUIDChanged, err := ensureUserExists("webd", webdGroup)
 	if err != nil {
 		return err
 	}
-	if httpsdUserCreated {
-		fmt.Printf("created user httpsd uid=%d gid=%d\n", httpsdUID, httpsdPrimaryGID)
+	if webdUserCreated {
+		fmt.Printf("created user webd uid=%d gid=%d\n", webdUID, webdPrimaryGID)
 	}
-	if httpsdUIDChanged {
-		fmt.Printf("updated user httpsd uid=%d gid=%d to enforce allowed uid range %d-%d\n", httpsdUID, httpsdPrimaryGID, httpsdMinUID, httpsdMaxUID)
+	if webdUIDChanged {
+		fmt.Printf("updated user webd uid=%d gid=%d to enforce allowed uid range %d-%d\n", webdUID, webdPrimaryGID, webdMinUID, webdMaxUID)
 	}
 
 	tlskeyGID, tlskeyCreated, err := ensureGroupExists("tlskey", -1)
@@ -78,18 +78,18 @@ func runSetup(opts app.SetupOptions) error {
 		fmt.Printf("created group tlskey gid=%d\n", tlskeyGID)
 	}
 
-	membershipChanged, err := ensureUserInGroup("httpsd", "tlskey")
+	membershipChanged, err := ensureUserInGroup("webd", "tlskey")
 	if err != nil {
 		return err
 	}
 	if membershipChanged {
-		fmt.Println("added user httpsd to group tlskey")
+		fmt.Println("added user webd to group tlskey")
 	}
 
-	if err := validateServiceIdentity("httpsd", "httpsd", "tlskey"); err != nil {
+	if err := validateServiceIdentity("webd", "webd", "tlskey"); err != nil {
 		return err
 	}
-	if err := validateAccountDatabases("httpsd", "tlskey"); err != nil {
+	if err := validateAccountDatabases("webd", "tlskey"); err != nil {
 		return err
 	}
 
@@ -101,7 +101,7 @@ func runSetup(opts app.SetupOptions) error {
 	}
 	fmt.Printf("verified TLS cert/key paths exist without changing ownership/perms cert=%s key=%s\n", opts.TLSCertPath, opts.TLSKeyPath)
 
-	if err := ensureEtcConfig(httpsdGroup); err != nil {
+	if err := ensureEtcConfig(webdGroup); err != nil {
 		return err
 	}
 
@@ -136,27 +136,27 @@ func runSetup(opts app.SetupOptions) error {
 	return nil
 }
 
-func ensureEtcConfig(httpsdGroup int) error {
-	const etcDir = "/etc/httpsd"
+func ensureEtcConfig(webdGroup int) error {
+	const etcDir = "/etc/webd"
 	const configPath = app.DefaultConfigPath
 
 	if err := os.MkdirAll(etcDir, 0o750); err != nil {
 		return fmt.Errorf("create %s: %w", etcDir, err)
 	}
-	if err := os.Chown(etcDir, 0, httpsdGroup); err != nil {
-		return fmt.Errorf("chown %s to root:httpsd: %w", etcDir, err)
+	if err := os.Chown(etcDir, 0, webdGroup); err != nil {
+		return fmt.Errorf("chown %s to root:webd: %w", etcDir, err)
 	}
 	if err := os.Chmod(etcDir, 0o750); err != nil {
 		return fmt.Errorf("chmod %s to 0750: %w", etcDir, err)
 	}
-	fmt.Println("ensured /etc/httpsd ownership=root:httpsd perms=750")
+	fmt.Println("ensured /etc/webd ownership=root:webd perms=750")
 
 	if _, err := os.Stat(configPath); errors.Is(err, os.ErrNotExist) {
 		if err := os.WriteFile(configPath, []byte(defaultConfigYAML), 0o640); err != nil {
 			return fmt.Errorf("write default config %s: %w", configPath, err)
 		}
-		if err := os.Chown(configPath, 0, httpsdGroup); err != nil {
-			return fmt.Errorf("chown %s to root:httpsd: %w", configPath, err)
+		if err := os.Chown(configPath, 0, webdGroup); err != nil {
+			return fmt.Errorf("chown %s to root:webd: %w", configPath, err)
 		}
 		fmt.Printf("deployed config example to %s\n", configPath)
 	} else if err != nil {
@@ -204,7 +204,7 @@ func daemonReload() error {
 }
 
 func ensureVersionedInstall() (string, error) {
-	const installRoot = "/opt/httpsd"
+	const installRoot = "/opt/webd"
 
 	versionDirName, err := buildVersionDirName()
 	if err != nil {
@@ -222,7 +222,7 @@ func ensureVersionedInstall() (string, error) {
 
 	versionDir := filepath.Join(installRoot, versionDirName)
 	versionBinDir := filepath.Join(versionDir, "libexec")
-	versionBinaryPath := filepath.Join(versionBinDir, "httpsd")
+	versionBinaryPath := filepath.Join(versionBinDir, "webd")
 	currentLink := filepath.Join(installRoot, "current")
 
 	if err := os.MkdirAll(versionBinDir, 0o755); err != nil {
@@ -396,7 +396,7 @@ func ensureGroupExists(name string, preferredGID int) (gid int, created bool, er
 
 	gid = preferredGID
 	if gid < 0 {
-		gid, err = nextAvailableSystemID(groupsToIDs(groups), httpsdMinUID, httpsdMaxUID)
+		gid, err = nextAvailableSystemID(groupsToIDs(groups), webdMinUID, webdMaxUID)
 		if err != nil {
 			return 0, false, err
 		}
@@ -417,11 +417,11 @@ func ensureUserExists(name string, primaryGID int) (uid int, gid int, created bo
 		if entry.name != name {
 			continue
 		}
-		if entry.uid >= httpsdMinUID && entry.uid <= httpsdMaxUID {
+		if entry.uid >= webdMinUID && entry.uid <= webdMaxUID {
 			return entry.uid, entry.gid, false, false, nil
 		}
 
-		newUID, allocErr := nextAvailableSystemID(passwdToUIDs(passwd), httpsdMinUID, httpsdMaxUID)
+		newUID, allocErr := nextAvailableSystemID(passwdToUIDs(passwd), webdMinUID, webdMaxUID)
 		if allocErr != nil {
 			return 0, 0, false, false, allocErr
 		}
@@ -431,7 +431,7 @@ func ensureUserExists(name string, primaryGID int) (uid int, gid int, created bo
 		return newUID, entry.gid, false, true, nil
 	}
 
-	uid, err = nextAvailableSystemID(passwdToUIDs(passwd), httpsdMinUID, httpsdMaxUID)
+	uid, err = nextAvailableSystemID(passwdToUIDs(passwd), webdMinUID, webdMaxUID)
 	if err != nil {
 		return 0, 0, false, false, err
 	}
@@ -529,8 +529,8 @@ func validateAccountDatabases(userName, tlsGroupName string) error {
 	if userEntry == nil {
 		return fmt.Errorf("user %s missing from /etc/passwd", userName)
 	}
-	if userEntry.uid < httpsdMinUID || userEntry.uid > httpsdMaxUID {
-		return fmt.Errorf("user %s has uid %d outside allowed range %d-%d", userName, userEntry.uid, httpsdMinUID, httpsdMaxUID)
+	if userEntry.uid < webdMinUID || userEntry.uid > webdMaxUID {
+		return fmt.Errorf("user %s has uid %d outside allowed range %d-%d", userName, userEntry.uid, webdMinUID, webdMaxUID)
 	}
 
 	primaryGroupOK := false

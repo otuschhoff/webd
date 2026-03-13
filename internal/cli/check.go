@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"httpsd/internal/app"
+	"webd/internal/app"
 )
 
 type portProcessInfo struct {

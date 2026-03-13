@@ -20,14 +20,14 @@ import (
 	"syscall"
 	"time"
 
-	"httpsd/internal/app"
-	"httpsd/internal/schema"
-	"httpsd/internal/server"
-	"httpsd/internal/syslogx"
+	"webd/internal/app"
+	"webd/internal/schema"
+	"webd/internal/server"
+	"webd/internal/syslogx"
 )
 
 // Options controls root helper behavior for staging runtime TLS artifacts and
-// signaling running httpsd processes.
+// signaling running webd processes.
 type Options struct {
 	HTTPAddr      string
 	HTTPSAddr     string
@@ -57,9 +57,9 @@ func DefaultOptions() Options {
 	}
 }
 
-// Run locates running httpsd processes and sends them SIGHUP for in-place reload.
+// Run locates running webd processes and sends them SIGHUP for in-place reload.
 func Run(opts Options) error {
-	logs, err := syslogx.NewForCommand("httpsdctl", false)
+	logs, err := syslogx.NewForCommand("webctl", false)
 	if err != nil {
 		return fmt.Errorf("setup syslog loggers: %w", err)
 	}
@@ -96,7 +96,7 @@ func Run(opts Options) error {
 			return err
 		}
 		if len(pids) == 0 {
-			return fmt.Errorf("no running httpsd process found")
+			return fmt.Errorf("no running webd process found")
 		}
 
 		if err := ensurePortsBoundByHTTPSD(opts.HTTPAddr, opts.HTTPSAddr, pids); err != nil {
@@ -127,7 +127,7 @@ func Run(opts Options) error {
 	}
 
 	if sent == 0 {
-		return fmt.Errorf("could not signal any running httpsd process")
+		return fmt.Errorf("could not signal any running webd process")
 	}
 	return nil
 }
@@ -740,7 +740,7 @@ func ensurePortsBoundByHTTPSD(httpAddr, httpsAddr string, pids []int) error {
 			return fmt.Errorf("%s port %s is not currently bound", p.label, p.addr)
 		}
 		if !anyPIDOwnsInode(pids, inodes) {
-			return fmt.Errorf("%s port %s is not bound by a running httpsd process", p.label, p.addr)
+			return fmt.Errorf("%s port %s is not bound by a running webd process", p.label, p.addr)
 		}
 	}
 
@@ -800,7 +800,7 @@ func findHTTPSDPIDs() ([]int, error) {
 		if readErr != nil {
 			continue
 		}
-		if strings.TrimSpace(string(comm)) == "httpsd" {
+		if strings.TrimSpace(string(comm)) == "webd" {
 			pids = append(pids, pid)
 		}
 	}

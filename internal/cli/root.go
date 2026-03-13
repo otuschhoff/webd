@@ -3,7 +3,7 @@ package cli
 import (
 	"github.com/spf13/cobra"
 
-	"httpsd/internal/app"
+	"webd/internal/app"
 )
 
 // ExecuteControl runs the control-plane CLI (check, reload, setup).
@@ -13,7 +13,7 @@ func ExecuteControl() error {
 	reloadOpts := DefaultOptions()
 
 	rootCmd := &cobra.Command{
-		Use:     "httpsdctl",
+		Use:     "webctl",
 		Short:   "HTTPS proxy control-plane commands",
 		Version: app.VersionString(),
 	}
@@ -26,7 +26,7 @@ func ExecuteControl() error {
 	rootCmd.PersistentFlags().StringVar(&runOpts.RunUser, "run-user", runOpts.RunUser, "Expected runtime user for the server process")
 	reloadCmd := &cobra.Command{
 		Use:   "reload",
-		Short: "Stage TLS artifacts under /run and reload running httpsd",
+		Short: "Stage TLS artifacts under /run and reload running webd",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			reloadOpts.HTTPAddr = runOpts.HTTPAddr
 			reloadOpts.HTTPSAddr = runOpts.HTTPSAddr
@@ -63,7 +63,7 @@ func ExecuteControl() error {
 	setupCmd.Flags().StringVar(&setupOpts.TLSKeyPath, "tls-key", setupOpts.TLSKeyPath, "TLS private key path for permission setup")
 	setupCmd.Flags().StringVar(&setupOpts.TLSCertPath, "tls-cert", setupOpts.TLSCertPath, "TLS certificate path for permission setup")
 	setupCmd.Flags().StringVar(&setupOpts.ServicePath, "service-path", setupOpts.ServicePath, "Systemd unit file path")
-	setupCmd.Flags().StringVar(&setupOpts.BinaryPath, "binary", setupOpts.BinaryPath, "httpsd binary path for setcap configuration")
+	setupCmd.Flags().StringVar(&setupOpts.BinaryPath, "binary", setupOpts.BinaryPath, "webd binary path for setcap configuration")
 	setupCmd.Flags().BoolVar(&setupOpts.Force, "force", setupOpts.Force, "Allow overwriting an existing non-matching systemd unit file")
 
 	rootCmd.AddCommand(reloadCmd, checkCmd, setupCmd)

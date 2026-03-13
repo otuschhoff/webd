@@ -16,21 +16,21 @@ package app
 // DefaultBinaryPath is the default installed binary path used by setup and systemd.
 // DefaultServicePath is the default systemd unit file path.
 const (
-	DefaultConfigPath          = "/etc/httpsd/config.yaml"
+	DefaultConfigPath          = "/etc/webd/config.yaml"
 	DefaultTLSSourceCertPath   = "/etc/pki/tls/certs/self.crt"
 	DefaultTLSSourceKeyPath    = "/etc/pki/tls/private/self.key"
-	DefaultRuntimeTLSDir       = "/run/httpsd"
-	DefaultRuntimeConfigPath   = "/run/httpsd/config.json"
-	DefaultRuntimeTLSCertPath  = "/run/httpsd/tls.crt"
-	DefaultRuntimeTLSKeyPath   = "/run/httpsd/tls.key"
-	DefaultRuntimeTrustedCADir = "/run/httpsd"
+	DefaultRuntimeTLSDir       = "/run/webd"
+	DefaultRuntimeConfigPath   = "/run/webd/config.json"
+	DefaultRuntimeTLSCertPath  = "/run/webd/tls.crt"
+	DefaultRuntimeTLSKeyPath   = "/run/webd/tls.key"
+	DefaultRuntimeTrustedCADir = "/run/webd"
 	DefaultTLSCertPath         = DefaultRuntimeTLSCertPath
 	DefaultTLSKeyPath          = DefaultRuntimeTLSKeyPath
-	DefaultRunUser             = "httpsd"
+	DefaultRunUser             = "webd"
 	DefaultHTTPAddr            = ":80"
 	DefaultHTTPSAddr           = ":443"
-	DefaultBinaryPath          = "/opt/httpsd/current/libexec/httpsd"
-	DefaultServicePath         = "/etc/systemd/system/httpsd.service"
+	DefaultBinaryPath          = "/opt/webd/current/libexec/webd"
+	DefaultServicePath         = "/etc/systemd/system/webd.service"
 )
 
 // ServiceUnitContent is the desired systemd unit file content written by setup.
@@ -41,23 +41,23 @@ Requires=network-online.target
 
 [Service]
 Type=simple
-User=httpsd
-Group=httpsd
+User=webd
+Group=webd
 PermissionsStartOnly=true
-SyslogIdentifier=httpsd
+SyslogIdentifier=webd
 StandardOutput=journal
 StandardError=journal
-RuntimeDirectory=httpsd
+RuntimeDirectory=webd
 RuntimeDirectoryMode=0750
-RootDirectory=/run/httpsd
+RootDirectory=/run/webd
 RootDirectoryStartOnly=true
 WorkingDirectory=/
-BindReadOnlyPaths=/opt/httpsd/current/libexec/httpsd
-BindReadOnlyPaths=/opt/httpsd/current/sbin/httpsdctl
+BindReadOnlyPaths=/opt/webd/current/libexec/webd
+BindReadOnlyPaths=/opt/webd/current/sbin/webctl
 BindPaths=/dev/log
-ExecStartPre=/opt/httpsd/current/sbin/httpsdctl reload --prepare-only
-ExecStart=/opt/httpsd/current/libexec/httpsd
-ExecReload=/opt/httpsd/current/sbin/httpsdctl reload
+ExecStartPre=/opt/webd/current/sbin/webctl reload --prepare-only
+ExecStart=/opt/webd/current/libexec/webd
+ExecReload=/opt/webd/current/sbin/webctl reload
 Restart=on-failure
 
 # Security: grant low-port bind capability at service runtime
@@ -99,7 +99,7 @@ type SetupOptions struct {
 	TLSKeyPath string
 	// ServicePath is the systemd unit file path managed by setup.
 	ServicePath string
-	// BinaryPath is the installed httpsd binary path used for capability setup.
+	// BinaryPath is the installed webd binary path used for capability setup.
 	BinaryPath string
 	// Force allows setup to overwrite an existing, non-matching systemd unit file.
 	Force bool

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"httpsd/internal/server"
-	"httpsd/internal/syslogx"
+	"webd/internal/server"
+	"webd/internal/syslogx"
 )
 
 const (
@@ -19,7 +19,7 @@ const (
 )
 
 func main() {
-	logs, err := syslogx.New("httpsd", false)
+	logs, err := syslogx.New("webd", false)
 	if err != nil {
 		os.Exit(1)
 	}
@@ -29,7 +29,7 @@ func main() {
 	errLog := logs.Error
 
 	if len(os.Args) != 1 {
-		errLog.Printf("fatal: %v", fmt.Errorf("httpsd does not accept flags or subcommands; use httpsdctl for control operations"))
+		errLog.Printf("fatal: %v", fmt.Errorf("webd does not accept flags or subcommands; use webctl for control operations"))
 		os.Exit(1)
 	}
 

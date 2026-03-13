@@ -1,4 +1,4 @@
-# httpsd
+# webd
 
 ## Objectives
 
@@ -6,8 +6,8 @@
 - Serve both HTTP (`:80`) and HTTPS (`:443`) with configured TLS material.
 - Support zero-downtime reload of TLS cert/key and route config via `SIGHUP`.
 - Split binaries by responsibility:
-  - `httpsd` for the HTTP(S) data-plane server.
-  - `httpsdctl` for control-plane operations (`reload`, `check`, `setup`).
+  - `webd` for the HTTP(S) data-plane server.
+  - `webctl` for control-plane operations (`reload`, `check`, `setup`).
 
 ## Usage
 
@@ -17,41 +17,41 @@ Build a local binary:
 mkdir -p ./bin
 
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
-  -o ./bin/httpsd ./cmd/httpsd
+  -ldflags "-X 'webd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'webd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -o ./bin/webd ./cmd/webd
 
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
-  -o ./bin/httpsdctl ./cmd/httpsdctl
+  -ldflags "-X 'webd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'webd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -o ./bin/webctl ./cmd/webctl
 ```
 
 Run the proxy server:
 
 ```sh
-./bin/httpsd
+./bin/webd
 ```
 
 Reload config + TLS on a running process:
 
 ```sh
-./bin/httpsdctl reload
+./bin/webctl reload
 ```
 
 Validate and pretty-print config:
 
 ```sh
-./bin/httpsdctl check --config /etc/httpsd/config.yaml
+./bin/webctl check --config /etc/webd/config.yaml
 ```
 
 Host setup (root required):
 
 ```sh
-sudo ./bin/httpsdctl setup
+sudo ./bin/webctl setup
 ```
 
 ## Configuration
 
-Default config path: `/etc/httpsd/config.yaml`
+Default config path: `/etc/webd/config.yaml`
 
 Example (`config.example.yaml`):
 
@@ -85,11 +85,11 @@ Rules:
 - `redirect` must be a valid absolute URL and returns `301 Moved Permanently`.
 - Supported upstream schemes are `http`, `https`, `ws`, and `wss`.
 - `allowed_ipv4` is optional and can include IPv4 addresses, IPv4 ranges (`start-end`), and IPv4 CIDRs.
-- If a request matches a route prefix with `allowed_ipv4` and the client IPv4 is not in the allow-list, `httpsd` returns `403 Forbidden` for that route.
+- If a request matches a route prefix with `allowed_ipv4` and the client IPv4 is not in the allow-list, `webd` returns `403 Forbidden` for that route.
 - `trusted_ca` is optional and supported only for `https` and `wss` upstreams.
 - `trusted_ca` cannot be used with `redirect` routes.
 - `trusted_ca.name` may contain only letters, digits, `.`, `_`, and `-`.
-- `trusted_ca.cert_path` must point to a PEM CA bundle that `httpsdctl reload` can read.
+- `trusted_ca.cert_path` must point to a PEM CA bundle that `webctl reload` can read.
 - Longest `path_prefix` wins.
 
 Config examples:
@@ -202,8 +202,8 @@ TLS notes:
 
 Project layout:
 
-- `cmd/httpsd/main.go`: data-plane daemon entrypoint.
-- `cmd/httpsdctl/main.go`: control-plane utility entrypoint.
+- `cmd/webd/main.go`: data-plane daemon entrypoint.
+- `cmd/webctl/main.go`: control-plane utility entrypoint.
 - `internal/cli`: control-plane commands, config parsing, reload staging, setup.
 - `internal/server`: runtime config model, proxy runtime, request logging, TLS/config SIGHUP reload.
 - `internal/app`: defaults and shared option structs.
@@ -211,24 +211,24 @@ Project layout:
 Runtime behavior highlights:
 
 - Logging is sent to journal via syslog with separate categories:
-  - `httpsd-error` for fatal/runtime errors
-  - `httpsd-ops` for operational events (startup/load/reload/signal)
-  - `httpsd-access` for per-request access entries
+  - `webd-error` for fatal/runtime errors
+  - `webd-ops` for operational events (startup/load/reload/signal)
+  - `webd-access` for per-request access entries
 - TLS cert/key and routes are reloaded in-process on `SIGHUP`.
-- `httpsdctl reload` resolves upstream hostnames and writes runtime config with decomposed upstream targets including `protocol`, `hostname`, `port`, `path`, and `ipv4_addresses`.
-- `httpsdctl reload` verifies each HTTPS upstream against its configured local trusted CA bundle, extracts the validating intermediate/root certificates when possible, and stages them at `/run/httpsd/ca-<name>.crt`.
-- `httpsd` loads only `/run/httpsd/config.json`, dials the staged IPv4 addresses directly, and does not perform DNS lookups for upstream routing.
-- `httpsd` uses a staged trusted CA bundle to verify an HTTPS upstream when that upstream declares `trusted_ca`.
+- `webctl reload` resolves upstream hostnames and writes runtime config with decomposed upstream targets including `protocol`, `hostname`, `port`, `path`, and `ipv4_addresses`.
+- `webctl reload` verifies each HTTPS upstream against its configured local trusted CA bundle, extracts the validating intermediate/root certificates when possible, and stages them at `/run/webd/ca-<name>.crt`.
+- `webd` loads only `/run/webd/config.json`, dials the staged IPv4 addresses directly, and does not perform DNS lookups for upstream routing.
+- `webd` uses a staged trusted CA bundle to verify an HTTPS upstream when that upstream declares `trusted_ca`.
 - Upstream requests include standard proxy headers such as `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port`, `X-Real-IP`, and `Forwarded`.
-- `httpsd` accepts no flags/subcommands; control operations are in `httpsdctl`.
-- `httpsd` requires effective UID in the 500-999 range.
-- `httpsd` fails fast if any required runtime file is unreadable.
+- `webd` accepts no flags/subcommands; control operations are in `webctl`.
+- `webd` requires effective UID in the 500-999 range.
+- `webd` fails fast if any required runtime file is unreadable.
 
 Implementation call flow:
 
-Server startup (`httpsd`):
+Server startup (`webd`):
 
-1. `cmd/httpsd/main.go:main` creates syslog loggers with `syslogx.New`, rejects flags/subcommands, validates the effective UID range, and verifies the required runtime files under `/run/httpsd`.
+1. `cmd/webd/main.go:main` creates syslog loggers with `syslogx.New`, rejects flags/subcommands, validates the effective UID range, and verifies the required runtime files under `/run/webd`.
 2. `main` builds `app.RunOptions` and calls `server.Run`.
 3. `internal/server/server.go:Run` creates the daemon loggers, loads the runtime JSON with `LoadJSON`, and validates it through `internal/server/config.go:Validate`.
 4. `Run` builds route handlers with `buildRouteProxies`; upstream routes use `upstreamURL`, `httputil.NewSingleHostReverseProxy`, a wrapped `Director` that calls `setForwardedHeaders`, and `newStaticUpstreamTransport`, while redirect routes keep only a redirect target URL.
@@ -246,23 +246,23 @@ HTTP request proxying:
 6. Proxy failures are handled by the custom `ErrorHandler` installed in `buildRouteProxies`, which returns `502 Bad Gateway` and logs the upstream/path/error.
 7. The outer `accessLogMiddleware` records the final status, response size, duration, method, URI, and client IP after the proxied request completes.
 
-Control-plane reload (`httpsdctl reload` and `--prepare-only`):
+Control-plane reload (`webctl reload` and `--prepare-only`):
 
-1. `cmd/httpsdctl/main.go:main` creates command loggers with `syslogx.NewForCommand` and calls `cli.ExecuteControl`.
+1. `cmd/webctl/main.go:main` creates command loggers with `syslogx.NewForCommand` and calls `cli.ExecuteControl`.
 2. `internal/cli/root.go:ExecuteControl` builds the Cobra root command, wires the `reload` subcommand, copies persistent flag values into `reload.Options`, and calls `internal/cli/reload.go:Run`.
-3. `Run` requires root, resolves the runtime user with `lookupRunUser`, validates the runtime directory layout with `validateRunTLSDirs`, and creates/chowns `/run/httpsd` with `ensureRuntimeTLSDir`.
+3. `Run` requires root, resolves the runtime user with `lookupRunUser`, validates the runtime directory layout with `validateRunTLSDirs`, and creates/chowns `/run/webd` with `ensureRuntimeTLSDir`.
 4. If `PrepareOnly` is false, `Run` locates live daemon PIDs with `findHTTPSDPIDs` and verifies that the configured HTTP/HTTPS listen ports are owned by those processes with `ensurePortsBoundByHTTPSD`.
 5. `Run` stages all runtime artifacts through `stageTLSArtifacts`.
-6. `stageTLSArtifacts` first calls `stageConfigArtifact`, which loads the YAML source config with `internal/cli/config.go:Load`, converts it to runtime JSON with `buildRuntimeConfig`, and writes `/run/httpsd/config.json` atomically.
+6. `stageTLSArtifacts` first calls `stageConfigArtifact`, which loads the YAML source config with `internal/cli/config.go:Load`, converts it to runtime JSON with `buildRuntimeConfig`, and writes `/run/webd/config.json` atomically.
 7. `buildRuntimeConfig` translates `allowed_ipv4` entries into numeric `start`/`end` IPv4 ranges for the runtime JSON, emits redirect routes directly, and for upstream routes uses `buildRuntimeUpstream` to resolve `ipv4_addresses` and stage `trusted_ca` runtime files when configured.
-8. `stageTrustedCA` verifies the upstream against the local CA file by calling `fetchVerifiedUpstreamCACerts`; that helper reads the configured PEM bundle, fetches the upstream-presented chain with `fetchUpstreamPeerCertificates`, verifies it with `x509.Certificate.Verify`, optionally extends it with `appendLocalParentChain`, and writes `/run/httpsd/ca-<name>.crt` with `writeTrustedCAFile`.
-9. After the runtime JSON is staged, `stageTLSArtifacts` validates the configured server certificate chain order with `validateTLSBundleOrder`, then copies the TLS certificate and key into `/run/httpsd/tls.crt` and `/run/httpsd/tls.key` with `copyFileAtomic` and fixes ownership.
+8. `stageTrustedCA` verifies the upstream against the local CA file by calling `fetchVerifiedUpstreamCACerts`; that helper reads the configured PEM bundle, fetches the upstream-presented chain with `fetchUpstreamPeerCertificates`, verifies it with `x509.Certificate.Verify`, optionally extends it with `appendLocalParentChain`, and writes `/run/webd/ca-<name>.crt` with `writeTrustedCAFile`.
+9. After the runtime JSON is staged, `stageTLSArtifacts` validates the configured server certificate chain order with `validateTLSBundleOrder`, then copies the TLS certificate and key into `/run/webd/tls.crt` and `/run/webd/tls.key` with `copyFileAtomic` and fixes ownership.
 10. If `PrepareOnly` is true, `Run` stops here after logging `prepare-only mode complete`; no process discovery or signal delivery happens.
 11. Otherwise, `Run` sends `SIGHUP` to each discovered daemon PID with `syscall.Kill`, which triggers the in-process reload path in `internal/server/server.go:Run`.
 
-Control-plane config check (`httpsdctl check`):
+Control-plane config check (`webctl check`):
 
-1. `cmd/httpsdctl/main.go:main` creates command loggers with `syslogx.NewForCommand` and calls `cli.ExecuteControl`.
+1. `cmd/webctl/main.go:main` creates command loggers with `syslogx.NewForCommand` and calls `cli.ExecuteControl`.
 2. `internal/cli/root.go:ExecuteControl` wires the `check` subcommand and calls `runCheck` with the shared `app.RunOptions` values from the persistent flags.
 3. `internal/cli/check.go:runCheck` loads and validates the YAML config with `internal/cli/config.go:Load`, renders it with `PrettyYAML`, and prints it through `ColorizeYAML`.
 4. `runCheck` performs port checks with `checkBindPort`, which resolves the configured port, inspects `/proc` listener ownership through `findPortOwners`, and reports either a free port or the owning processes.
@@ -271,14 +271,14 @@ Control-plane config check (`httpsdctl check`):
 7. `runCheck` validates the local serving certificate and key with `checkTLSMaterials`, which reads both PEM files, verifies `tls.X509KeyPair`, parses the certificate chain with `parseCertificatesFromPEM`, checks ordering/signatures, and verifies that the leaf SAN matches one of the local host candidates from `hostCandidates`.
 8. If any port, upstream, or TLS check fails, `runCheck` returns a combined error summary; otherwise it prints `check OK`.
 
-Control-plane host setup (`httpsdctl setup`):
+Control-plane host setup (`webctl setup`):
 
-1. `cmd/httpsdctl/main.go:main` creates command loggers with `syslogx.NewForCommand` and calls `cli.ExecuteControl`.
+1. `cmd/webctl/main.go:main` creates command loggers with `syslogx.NewForCommand` and calls `cli.ExecuteControl`.
 2. `internal/cli/root.go:ExecuteControl` wires the `setup` subcommand, binds the setup-specific flags, and calls `runSetup` with `app.SetupOptions`.
-3. `internal/cli/setup.go:runSetup` requires root, then creates or validates the `httpsd` and `tlskey` groups with `ensureGroupExists` and the `httpsd` user with `ensureUserExists`.
-4. `runSetup` ensures the `httpsd` user is a member of `tlskey` via `ensureUserInGroup`, then verifies the resulting account layout with `validateServiceIdentity` and `validateAccountDatabases`.
-5. `runSetup` checks that the configured TLS key and certificate files exist, then provisions `/etc/httpsd` and the default config file via `ensureEtcConfig`.
-6. `runSetup` stages the current binary into the versioned install tree with `ensureVersionedInstall`; that helper derives the versioned path from `app.Version` and `app.BuildTime` using `buildVersionDirName`, copies the executable into `/opt/httpsd/<version>/libexec/httpsd`, and refreshes `/opt/httpsd/current` to point at the newest installed version.
+3. `internal/cli/setup.go:runSetup` requires root, then creates or validates the `webd` and `tlskey` groups with `ensureGroupExists` and the `webd` user with `ensureUserExists`.
+4. `runSetup` ensures the `webd` user is a member of `tlskey` via `ensureUserInGroup`, then verifies the resulting account layout with `validateServiceIdentity` and `validateAccountDatabases`.
+5. `runSetup` checks that the configured TLS key and certificate files exist, then provisions `/etc/webd` and the default config file via `ensureEtcConfig`.
+6. `runSetup` stages the current binary into the versioned install tree with `ensureVersionedInstall`; that helper derives the versioned path from `app.Version` and `app.BuildTime` using `buildVersionDirName`, copies the executable into `/opt/webd/<version>/libexec/webd`, and refreshes `/opt/webd/current` to point at the newest installed version.
 7. `runSetup` removes any file capabilities from the configured binary path with `ensureNoFileCapabilities`; low-port bind permission is then supplied only by systemd `AmbientCapabilities`.
 8. `runSetup` writes or validates the systemd unit with `ensureSystemdUnit`; if the unit changed, it runs `daemonReload` to execute `systemctl daemon-reload`.
 9. `runSetup` finishes by printing `setup complete` after the host account, config, binary install, capability, and systemd state all match the expected layout.
@@ -293,11 +293,11 @@ Examples:
 xc -s -no-tty     # list task names
 xc build          # alias for xc build-all
 xc build-all      # build both binaries into ./bin/
-xc build-server   # build ./bin/httpsd from ./cmd/httpsd
-xc build-client   # build ./bin/httpsdctl from ./cmd/httpsdctl
+xc build-server   # build ./bin/webd from ./cmd/webd
+xc build-client   # build ./bin/webctl from ./cmd/webctl
 xc test           # run all tests
 xc check          # validate config.example.yaml
-./bin/httpsd --version
+./bin/webd --version
 ```
 
 ## Tasks
@@ -308,8 +308,8 @@ xc check          # validate config.example.yaml
 mkdir -p ./bin
 
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
-  -o ./bin/httpsdctl ./cmd/httpsdctl
+  -ldflags "-X 'webd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'webd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -o ./bin/webctl ./cmd/webctl
 ```
 
 ### build-server
@@ -318,8 +318,8 @@ CGO_ENABLED=0 go build \
 mkdir -p ./bin
 
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
-  -o ./bin/httpsd ./cmd/httpsd
+  -ldflags "-X 'webd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'webd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -o ./bin/webd ./cmd/webd
 ```
 
 ### build-all
@@ -328,12 +328,12 @@ CGO_ENABLED=0 go build \
 mkdir -p ./bin
 
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
-  -o ./bin/httpsd ./cmd/httpsd
+  -ldflags "-X 'webd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'webd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -o ./bin/webd ./cmd/webd
 
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
-  -o ./bin/httpsdctl ./cmd/httpsdctl
+  -ldflags "-X 'webd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'webd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -o ./bin/webctl ./cmd/webctl
 ```
 
 ### build
@@ -356,12 +356,12 @@ go test ./...
 mkdir -p ./bin
 
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
-  -o ./bin/httpsd ./cmd/httpsd
+  -ldflags "-X 'webd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'webd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -o ./bin/webd ./cmd/webd
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
-  -o ./bin/httpsdctl ./cmd/httpsdctl
-./bin/httpsdctl check --config ./config.example.yaml
+  -ldflags "-X 'webd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'webd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -o ./bin/webctl ./cmd/webctl
+./bin/webctl check --config ./config.example.yaml
 ```
 
 ### run
@@ -370,9 +370,9 @@ CGO_ENABLED=0 go build \
 mkdir -p ./bin
 
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
-  -o ./bin/httpsd ./cmd/httpsd
-./bin/httpsd
+  -ldflags "-X 'webd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'webd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -o ./bin/webd ./cmd/webd
+./bin/webd
 ```
 
 ### reload
@@ -381,12 +381,12 @@ CGO_ENABLED=0 go build \
 mkdir -p ./bin
 
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
-  -o ./bin/httpsd ./cmd/httpsd
+  -ldflags "-X 'webd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'webd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -o ./bin/webd ./cmd/webd
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
-  -o ./bin/httpsdctl ./cmd/httpsdctl
-./bin/httpsdctl reload
+  -ldflags "-X 'webd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'webd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -o ./bin/webctl ./cmd/webctl
+./bin/webctl reload
 ```
 
 ### setup
@@ -395,10 +395,10 @@ CGO_ENABLED=0 go build \
 mkdir -p ./bin
 
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
-  -o ./bin/httpsd ./cmd/httpsd
+  -ldflags "-X 'webd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'webd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -o ./bin/webd ./cmd/webd
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
-  -o ./bin/httpsdctl ./cmd/httpsdctl
-sudo ./bin/httpsdctl setup
+  -ldflags "-X 'webd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'webd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -o ./bin/webctl ./cmd/webctl
+sudo ./bin/webctl setup
 ```

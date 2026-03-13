@@ -3,12 +3,12 @@ package main
 import (
 	"os"
 
-	"httpsd/internal/cli"
-	"httpsd/internal/syslogx"
+	"webd/internal/cli"
+	"webd/internal/syslogx"
 )
 
 func main() {
-	logs, err := syslogx.NewForCommand("httpsdctl", false)
+	logs, err := syslogx.NewForCommand("webctl", false)
 	if err != nil {
 		os.Exit(1)
 	}

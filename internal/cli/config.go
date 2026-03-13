@@ -8,8 +8,8 @@ import (
 	"regexp"
 	"strings"
 
-	"httpsd/internal/schema"
-	"httpsd/internal/server"
+	"webd/internal/schema"
+	"webd/internal/server"
 
 	"gopkg.in/yaml.v3"
 )

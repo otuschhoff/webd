@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"httpsd/internal/schema"
+	"webd/internal/schema"
 )
 
 type IPv4Range struct {
@@ -39,7 +39,7 @@ type Route struct {
 	Upstream          *Upstream   `json:"upstream,omitempty"`
 }
 
-// Config is the runtime JSON configuration consumed by the httpsd daemon.
+// Config is the runtime JSON configuration consumed by the webd daemon.
 type Config struct {
 	Routes []Route `json:"routes"`
 }
