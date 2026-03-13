@@ -114,6 +114,7 @@ func Run(opts RunOptions) error {
 	handler := accessLogMiddleware(router, accessLog)
 
 	httpSrv := &http.Server{Addr: opts.HTTPAddr, Handler: handler}
+	httpSrv.SetKeepAlivesEnabled(true)
 
 	certs, err := newCertReloader(opts.TLSCertPath, opts.TLSKeyPath)
 	if err != nil {
@@ -128,6 +129,7 @@ func Run(opts RunOptions) error {
 			GetCertificate: certs.GetCertificate,
 		},
 	}
+	httpsSrv.SetKeepAlivesEnabled(true)
 
 	opsLog.Printf("webd version=%s", app.VersionString())
 	opsLog.Printf("webd starting http=%s https=%s config=%s routes=%d", opts.HTTPAddr, opts.HTTPSAddr, opts.ConfigPath, len(routes))
@@ -276,6 +278,14 @@ func isClientIPv4Allowed(rawIP string, ranges []IPv4Range) bool {
 
 func newStaticUpstreamTransport(upstream Upstream) (http.RoundTripper, error) {
 	base := http.DefaultTransport.(*http.Transport).Clone()
+	base.DisableKeepAlives = false
+	base.MaxIdleConns = 1024
+	base.MaxIdleConnsPerHost = 1024
+	base.IdleConnTimeout = 0
+	base.MaxConnsPerHost = 0
+	base.ForceAttemptHTTP2 = true
+	base.TLSHandshakeTimeout = 10 * time.Second
+	base.ExpectContinueTimeout = 1 * time.Second
 	addresses := append([]string(nil), upstream.IPv4Addresses...)
 	port := strconv.Itoa(upstream.Port)
 	dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
