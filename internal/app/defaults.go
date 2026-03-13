@@ -23,7 +23,7 @@ const (
 	DefaultRuntimeConfigPath   = "/run/httpsd/config.json"
 	DefaultRuntimeTLSCertPath  = "/run/httpsd/tls.crt"
 	DefaultRuntimeTLSKeyPath   = "/run/httpsd/tls.key"
-	DefaultRuntimeTrustedCADir = "/run/httpd"
+	DefaultRuntimeTrustedCADir = "/run/httpsd"
 	DefaultTLSCertPath         = DefaultRuntimeTLSCertPath
 	DefaultTLSKeyPath          = DefaultRuntimeTLSKeyPath
 	DefaultRunUser             = "httpsd"

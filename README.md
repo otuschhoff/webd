@@ -100,7 +100,7 @@ Runtime behavior highlights:
   - `httpsd-access` for per-request access entries
 - TLS cert/key and routes are reloaded in-process on `SIGHUP`.
 - `httpsdctl reload` resolves upstream hostnames and writes runtime config with decomposed upstream targets including `protocol`, `hostname`, `port`, `path`, and `ipv4_addresses`.
-- `httpsdctl reload` stages per-upstream trusted CA bundles at `/run/httpd/ca-<name>.crt` when configured.
+- `httpsdctl reload` verifies each HTTPS upstream against its configured local trusted CA bundle, extracts the validating intermediate/root certificates when possible, and stages them at `/run/httpsd/ca-<name>.crt`.
 - `httpsd` loads only `/run/httpsd/config.json`, dials the staged IPv4 addresses directly, and does not perform DNS lookups for upstream routing.
 - `httpsd` uses a staged trusted CA bundle to verify an HTTPS upstream when that upstream declares `trusted_ca`.
 - Upstream requests include standard proxy headers such as `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port`, `X-Real-IP`, and `Forwarded`.

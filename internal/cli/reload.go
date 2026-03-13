@@ -3,8 +3,11 @@ package cli
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"httpsd/internal/app"
 	"httpsd/internal/server"
@@ -359,7 +363,7 @@ func stageConfigArtifact(opts Options, uid, gid int) error {
 
 func buildRuntimeConfig(cfg *Config, uid, gid int) (*server.Config, error) {
 	resolved := &server.Config{Routes: make([]server.Route, 0, len(cfg.Routes))}
-	stagedCAs := make(map[string]string)
+	stagedCAs := make(map[string]*stagedTrustedCA)
 	for _, route := range cfg.Routes {
 		upstream, err := buildRuntimeUpstream(route, uid, gid, stagedCAs)
 		if err != nil {
@@ -373,7 +377,14 @@ func buildRuntimeConfig(cfg *Config, uid, gid int) (*server.Config, error) {
 	return resolved, nil
 }
 
-func buildRuntimeUpstream(route Route, uid, gid int, stagedCAs map[string]string) (server.Upstream, error) {
+type stagedTrustedCA struct {
+	sourcePath string
+	destPath   string
+	indexBySum map[[32]byte]int
+	pemBlocks  [][]byte
+}
+
+func buildRuntimeUpstream(route Route, uid, gid int, stagedCAs map[string]*stagedTrustedCA) (server.Upstream, error) {
 	u, err := url.Parse(route.Upstream)
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return server.Upstream{}, fmt.Errorf("invalid upstream URL")
@@ -405,7 +416,14 @@ func buildRuntimeUpstream(route Route, uid, gid int, stagedCAs map[string]string
 
 	var trustedCA *server.TrustedCA
 	if route.TrustedCA != nil {
-		trustedCA, err = stageTrustedCA(route.TrustedCA, uid, gid, stagedCAs)
+		trustedCA, err = stageTrustedCA(route.TrustedCA, server.Upstream{
+			Protocol:      protocol,
+			Hostname:      hostname,
+			Port:          portNum,
+			Path:          u.Path,
+			RawQuery:      u.RawQuery,
+			IPv4Addresses: resolvedIPs,
+		}, uid, gid, stagedCAs)
 		if err != nil {
 			return server.Upstream{}, err
 		}
@@ -456,7 +474,7 @@ func lookupIPv4Addresses(hostname string) ([]string, error) {
 	return v4s, nil
 }
 
-func stageTrustedCA(trustedCA *TrustedCA, uid, gid int, stagedCAs map[string]string) (*server.TrustedCA, error) {
+func stageTrustedCA(trustedCA *TrustedCA, upstream server.Upstream, uid, gid int, stagedCAs map[string]*stagedTrustedCA) (*server.TrustedCA, error) {
 	if trustedCA == nil {
 		return nil, nil
 	}
@@ -467,29 +485,44 @@ func stageTrustedCA(trustedCA *TrustedCA, uid, gid int, stagedCAs map[string]str
 		return nil, fmt.Errorf("trusted_ca requires both name and cert_path")
 	}
 
-	if existing, ok := stagedCAs[name]; ok && existing != sourcePath {
+	entry, ok := stagedCAs[name]
+	if ok && entry.sourcePath != sourcePath {
 		return nil, fmt.Errorf("trusted_ca name %q is used with multiple cert_path values", name)
 	}
 
 	if err := ensureRuntimeTrustedCADir(uid, gid); err != nil {
 		return nil, err
 	}
-	if err := validateTrustedCAFile(sourcePath); err != nil {
+
+	caCerts, err := fetchVerifiedUpstreamCACerts(upstream, sourcePath)
+	if err != nil {
 		return nil, err
 	}
 
-	destPath := filepath.Join(app.DefaultRuntimeTrustedCADir, "ca-"+name+".crt")
-	if _, ok := stagedCAs[name]; !ok {
-		if err := copyFileAtomic(sourcePath, destPath, 0o640); err != nil {
-			return nil, fmt.Errorf("stage trusted_ca %q: %w", name, err)
+	if !ok {
+		entry = &stagedTrustedCA{
+			sourcePath: sourcePath,
+			destPath:   filepath.Join(app.DefaultRuntimeTrustedCADir, "ca-"+name+".crt"),
+			indexBySum: make(map[[32]byte]int),
+			pemBlocks:  make([][]byte, 0, len(caCerts)),
 		}
-		if err := os.Chown(destPath, uid, gid); err != nil {
-			return nil, fmt.Errorf("chown staged trusted_ca %s: %w", destPath, err)
-		}
-		stagedCAs[name] = sourcePath
+		stagedCAs[name] = entry
 	}
 
-	return &server.TrustedCA{Name: name, File: destPath}, nil
+	for _, cert := range caCerts {
+		sum := sha256.Sum256(cert.Raw)
+		if _, exists := entry.indexBySum[sum]; exists {
+			continue
+		}
+		entry.indexBySum[sum] = len(entry.pemBlocks)
+		entry.pemBlocks = append(entry.pemBlocks, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw}))
+	}
+
+	if err := writeTrustedCAFile(entry.destPath, entry.pemBlocks, uid, gid); err != nil {
+		return nil, fmt.Errorf("stage trusted_ca %q: %w", name, err)
+	}
+
+	return &server.TrustedCA{Name: name, File: entry.destPath}, nil
 }
 
 func ensureRuntimeTrustedCADir(uid, gid int) error {
@@ -505,15 +538,164 @@ func ensureRuntimeTrustedCADir(uid, gid int) error {
 	return nil
 }
 
-func validateTrustedCAFile(certPath string) error {
-	pemBytes, err := os.ReadFile(certPath)
+func fetchVerifiedUpstreamCACerts(upstream server.Upstream, sourcePath string) ([]*x509.Certificate, error) {
+	localPEM, err := os.ReadFile(sourcePath)
 	if err != nil {
-		return fmt.Errorf("read trusted_ca %s: %w", certPath, err)
+		return nil, fmt.Errorf("read trusted_ca %s: %w", sourcePath, err)
+	}
+	localCerts, err := parseCertificatesFromPEM(localPEM)
+	if err != nil {
+		return nil, fmt.Errorf("parse trusted_ca %s: %w", sourcePath, err)
 	}
 
-	pool := x509.NewCertPool()
-	if ok := pool.AppendCertsFromPEM(pemBytes); !ok {
-		return fmt.Errorf("trusted_ca file %s does not contain any PEM certificates", certPath)
+	peerCerts, err := fetchUpstreamPeerCertificates(upstream)
+	if err != nil {
+		return nil, err
+	}
+	if len(peerCerts) == 0 {
+		return nil, fmt.Errorf("upstream %s presented no TLS certificates", formatRuntimeUpstream(upstream))
+	}
+
+	roots := x509.NewCertPool()
+	intermediates := x509.NewCertPool()
+	for _, cert := range localCerts {
+		roots.AddCert(cert)
+		if !isSelfSignedCertificate(cert) {
+			intermediates.AddCert(cert)
+		}
+	}
+	for _, cert := range peerCerts[1:] {
+		intermediates.AddCert(cert)
+	}
+
+	verifiedChains, err := peerCerts[0].Verify(x509.VerifyOptions{
+		DNSName:       upstream.Hostname,
+		Roots:         roots,
+		Intermediates: intermediates,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("verify upstream %s against trusted_ca %s: %w", formatRuntimeUpstream(upstream), sourcePath, err)
+	}
+
+	chain := longestVerifiedChain(verifiedChains)
+	if len(chain) == 0 {
+		return nil, fmt.Errorf("no verified certificate chain found for upstream %s", formatRuntimeUpstream(upstream))
+	}
+	chain = appendLocalParentChain(chain, localCerts)
+
+	caCerts := make([]*x509.Certificate, 0, len(chain)-1)
+	for _, cert := range chain[1:] {
+		if cert.IsCA {
+			caCerts = append(caCerts, cert)
+		}
+	}
+	if len(caCerts) == 0 {
+		return nil, fmt.Errorf("no validating CA certificates found for upstream %s", formatRuntimeUpstream(upstream))
+	}
+	return caCerts, nil
+}
+
+func fetchUpstreamPeerCertificates(upstream server.Upstream) ([]*x509.Certificate, error) {
+	dialer := &net.Dialer{Timeout: 5 * time.Second}
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: true,
+		ServerName:         upstream.Hostname,
+		MinVersion:         tls.VersionTLS12,
+	}
+
+	var errs []string
+	for _, rawIP := range upstream.IPv4Addresses {
+		addr := net.JoinHostPort(rawIP, strconv.Itoa(upstream.Port))
+		conn, err := tls.DialWithDialer(dialer, "tcp", addr, tlsConfig)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", rawIP, err))
+			continue
+		}
+		state := conn.ConnectionState()
+		_ = conn.Close()
+		return state.PeerCertificates, nil
+	}
+	return nil, fmt.Errorf("fetch upstream TLS certificates for %s failed: %s", formatRuntimeUpstream(upstream), strings.Join(errs, "; "))
+}
+
+func formatRuntimeUpstream(upstream server.Upstream) string {
+	return (&url.URL{
+		Scheme:   upstream.Protocol,
+		Host:     net.JoinHostPort(upstream.Hostname, strconv.Itoa(upstream.Port)),
+		Path:     upstream.Path,
+		RawQuery: upstream.RawQuery,
+	}).String()
+}
+
+func longestVerifiedChain(chains [][]*x509.Certificate) []*x509.Certificate {
+	var best []*x509.Certificate
+	for _, chain := range chains {
+		if len(chain) > len(best) {
+			best = chain
+		}
+	}
+	return best
+}
+
+func appendLocalParentChain(chain []*x509.Certificate, localCerts []*x509.Certificate) []*x509.Certificate {
+	seen := make(map[[32]byte]struct{}, len(chain))
+	for _, cert := range chain {
+		seen[sha256.Sum256(cert.Raw)] = struct{}{}
+	}
+
+	current := chain[len(chain)-1]
+	for {
+		if isSelfSignedCertificate(current) {
+			return chain
+		}
+		parent := findParentCertificate(current, localCerts, seen)
+		if parent == nil {
+			return chain
+		}
+		chain = append(chain, parent)
+		sum := sha256.Sum256(parent.Raw)
+		seen[sum] = struct{}{}
+		current = parent
+	}
+}
+
+func findParentCertificate(child *x509.Certificate, candidates []*x509.Certificate, seen map[[32]byte]struct{}) *x509.Certificate {
+	for _, candidate := range candidates {
+		sum := sha256.Sum256(candidate.Raw)
+		if _, exists := seen[sum]; exists {
+			continue
+		}
+		if !bytes.Equal(child.RawIssuer, candidate.RawSubject) {
+			continue
+		}
+		if err := child.CheckSignatureFrom(candidate); err != nil {
+			continue
+		}
+		return candidate
+	}
+	return nil
+}
+
+func isSelfSignedCertificate(cert *x509.Certificate) bool {
+	if cert == nil {
+		return false
+	}
+	if !bytes.Equal(cert.RawIssuer, cert.RawSubject) {
+		return false
+	}
+	return cert.CheckSignatureFrom(cert) == nil
+}
+
+func writeTrustedCAFile(destPath string, pemBlocks [][]byte, uid, gid int) error {
+	content := make([]byte, 0)
+	for _, block := range pemBlocks {
+		content = append(content, block...)
+	}
+	if err := writeFileAtomic(destPath, content, 0o640); err != nil {
+		return err
+	}
+	if err := os.Chown(destPath, uid, gid); err != nil {
+		return err
 	}
 	return nil
 }
