@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/url"
 	"os"
@@ -22,6 +21,7 @@ import (
 
 	"httpsd/internal/app"
 	"httpsd/internal/proxycfg"
+	"httpsd/internal/syslogx"
 )
 
 // Options controls root helper behavior for staging runtime TLS artifacts and
@@ -57,22 +57,36 @@ func DefaultOptions() Options {
 
 // Run locates running httpsd processes and sends them SIGHUP for in-place reload.
 func Run(opts Options) error {
+	logs, err := syslogx.NewForCommand("httpsdctl", false)
+	if err != nil {
+		return fmt.Errorf("setup syslog loggers: %w", err)
+	}
+	defer func() {
+		_ = logs.Close()
+	}()
+	opsLog := logs.Ops
+	errLog := logs.Error
+
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("reload helper must run as root because it stages TLS artifacts under /run and updates ownership")
 	}
 
 	runUID, runGID, err := lookupRunUser(opts.RunUser)
 	if err != nil {
+		errLog.Printf("reload run-user lookup failed user=%q err=%v", opts.RunUser, err)
 		return err
 	}
 
 	if err := validateRunTLSDirs(opts); err != nil {
+		errLog.Printf("reload runtime-dir validation failed err=%v", err)
 		return err
 	}
 	if err := ensureRuntimeTLSDir(opts, runUID, runGID); err != nil {
+		errLog.Printf("reload runtime-dir ensure failed err=%v", err)
 		return err
 	}
 	if err := ensureRuntimeDevLogBindMount(opts, runUID, runGID); err != nil {
+		errLog.Printf("reload dev-log bind mount ensure failed err=%v", err)
 		return err
 	}
 
@@ -80,6 +94,7 @@ func Run(opts Options) error {
 	if !opts.PrepareOnly {
 		pids, err = findHTTPSDPIDs()
 		if err != nil {
+			errLog.Printf("reload process discovery failed err=%v", err)
 			return err
 		}
 		if len(pids) == 0 {
@@ -87,28 +102,30 @@ func Run(opts Options) error {
 		}
 
 		if err := ensurePortsBoundByHTTPSD(opts.HTTPAddr, opts.HTTPSAddr, pids); err != nil {
+			errLog.Printf("reload active-port validation failed err=%v", err)
 			return err
 		}
 	}
 
 	if err := stageTLSArtifacts(opts, runUID, runGID); err != nil {
+		errLog.Printf("reload staging failed err=%v", err)
 		return err
 	}
-	fmt.Printf("staged runtime artifacts config=%s cert=%s key=%s owner=%s\n", opts.ConfigDest, opts.TLSCertDest, opts.TLSKeyDest, opts.RunUser)
+	opsLog.Printf("staged runtime artifacts config=%s cert=%s key=%s owner=%s", opts.ConfigDest, opts.TLSCertDest, opts.TLSKeyDest, opts.RunUser)
 
 	if opts.PrepareOnly {
-		fmt.Println("prepare-only mode complete")
+		opsLog.Printf("prepare-only mode complete")
 		return nil
 	}
 
 	sent := 0
 	for _, pid := range pids {
 		if killErr := syscall.Kill(pid, syscall.SIGHUP); killErr != nil {
-			log.Printf("reload failed pid=%d err=%v", pid, killErr)
+			errLog.Printf("reload signal failed pid=%d err=%v", pid, killErr)
 			continue
 		}
 		sent++
-		fmt.Printf("sent SIGHUP to pid=%d\n", pid)
+		opsLog.Printf("sent SIGHUP to pid=%d", pid)
 	}
 
 	if sent == 0 {
