@@ -25,10 +25,6 @@ import (
 	"webd/internal/syslogx"
 )
 
-// RunOptions defines daemon runtime options accepted by Run.
-// It aliases app.RunOptions so callers of internal/server do not need to import internal/app.
-type RunOptions = app.RunOptions
-
 type routeProxy struct {
 	prefix            string
 	redirectTarget    string

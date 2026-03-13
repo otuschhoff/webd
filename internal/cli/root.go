@@ -4,11 +4,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"webd/internal/app"
+	"webd/internal/server"
 )
 
 // ExecuteControl runs the control-plane CLI (check, reload, setup, letsencrypt).
 func ExecuteControl() error {
-	runOpts := app.DefaultRunOptions()
+	runOpts := server.DefaultRunOptions()
 	setupOpts := app.DefaultSetupOptions()
 	reloadOpts := DefaultOptions()
 	letsEncryptOpts := defaultLetsEncryptOptions()
@@ -24,14 +25,13 @@ func ExecuteControl() error {
 	rootCmd.PersistentFlags().StringVar(&runOpts.HTTPSAddr, "https-addr", runOpts.HTTPSAddr, "HTTPS listen address")
 	rootCmd.PersistentFlags().StringVar(&runOpts.TLSCertPath, "tls-cert", runOpts.TLSCertPath, "TLS certificate file")
 	rootCmd.PersistentFlags().StringVar(&runOpts.TLSKeyPath, "tls-key", runOpts.TLSKeyPath, "TLS private key file")
-	rootCmd.PersistentFlags().StringVar(&runOpts.RunUser, "run-user", runOpts.RunUser, "Expected runtime user for the server process")
+	rootCmd.PersistentFlags().StringVar(&reloadOpts.RunUser, "run-user", reloadOpts.RunUser, "Expected runtime user for the server process")
 	reloadCmd := &cobra.Command{
 		Use:   "reload",
 		Short: "Stage TLS artifacts under /run and reload running webd",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			reloadOpts.HTTPAddr = runOpts.HTTPAddr
 			reloadOpts.HTTPSAddr = runOpts.HTTPSAddr
-			reloadOpts.RunUser = runOpts.RunUser
 			reloadOpts.ConfigSource = runOpts.ConfigPath
 			reloadOpts.TLSCertDest = runOpts.TLSCertPath
 			reloadOpts.TLSKeyDest = runOpts.TLSKeyPath
@@ -75,7 +75,7 @@ func ExecuteControl() error {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			letsEncryptOpts.Reload.HTTPAddr = runOpts.HTTPAddr
 			letsEncryptOpts.Reload.HTTPSAddr = runOpts.HTTPSAddr
-			letsEncryptOpts.Reload.RunUser = runOpts.RunUser
+			letsEncryptOpts.Reload.RunUser = reloadOpts.RunUser
 			letsEncryptOpts.Reload.ConfigSource = runOpts.ConfigPath
 			letsEncryptOpts.Reload.TLSCertDest = runOpts.TLSCertPath
 			letsEncryptOpts.Reload.TLSKeyDest = runOpts.TLSKeyPath

@@ -67,24 +67,6 @@ ProtectHome=true
 WantedBy=multi-user.target
 `
 
-// RunOptions contains runtime configuration for the proxy process.
-type RunOptions struct {
-	// ConfigPath points to the YAML route configuration file.
-	ConfigPath string
-	// HTTPAddr is the plain HTTP listen address.
-	HTTPAddr string
-	// HTTPSAddr is the TLS-enabled HTTPS listen address.
-	HTTPSAddr string
-	// TLSCertPath points to the certificate chain PEM file.
-	TLSCertPath string
-	// TLSKeyPath points to the private key PEM file.
-	TLSKeyPath string
-	// RunUser is the expected account name for the running server process.
-	RunUser string
-	// Force disables the runtime user enforcement check.
-	Force bool
-}
-
 // SetupOptions contains host-level paths used by the setup subcommand.
 type SetupOptions struct {
 	// TLSCertPath points to the source certificate file validated by setup.
@@ -97,19 +79,6 @@ type SetupOptions struct {
 	BinaryPath string
 	// Force allows setup to overwrite an existing, non-matching systemd unit file.
 	Force bool
-}
-
-// DefaultRunOptions returns the runtime defaults used by the root and run commands.
-func DefaultRunOptions() RunOptions {
-	return RunOptions{
-		ConfigPath:  DefaultConfigPath,
-		HTTPAddr:    DefaultHTTPAddr,
-		HTTPSAddr:   DefaultHTTPSAddr,
-		TLSCertPath: DefaultTLSCertPath,
-		TLSKeyPath:  DefaultTLSKeyPath,
-		RunUser:     DefaultRunUser,
-		Force:       false,
-	}
 }
 
 // DefaultSetupOptions returns the default file paths used by the setup command.

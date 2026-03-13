@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"webd/internal/app"
+	"webd/internal/server"
 )
 
 type portProcessInfo struct {
@@ -32,7 +32,7 @@ type checkResult struct {
 	failLines []string
 }
 
-func runCheck(opts app.RunOptions) error {
+func runCheck(opts server.RunOptions) error {
 	cfg, err := Load(opts.ConfigPath)
 	if err != nil {
 		return err

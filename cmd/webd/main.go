@@ -52,8 +52,6 @@ func main() {
 		HTTPSAddr:   httpsAddr,
 		TLSCertPath: tlsCertPath,
 		TLSKeyPath:  tlsKeyPath,
-		RunUser:     "",
-		Force:       true,
 	}
 
 	if err := server.Run(opts); err != nil {
