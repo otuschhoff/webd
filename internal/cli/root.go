@@ -34,6 +34,7 @@ func ExecuteControl() error {
 			reloadOpts.HTTPAddr = runOpts.HTTPAddr
 			reloadOpts.HTTPSAddr = runOpts.HTTPSAddr
 			reloadOpts.RunUser = runOpts.RunUser
+			reloadOpts.ConfigSource = runOpts.ConfigPath
 			reloadOpts.TLSCertDest = runOpts.TLSCertPath
 			reloadOpts.TLSKeyDest = runOpts.TLSKeyPath
 			return reloadcmd.Run(reloadOpts)

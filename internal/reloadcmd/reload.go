@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -18,6 +19,7 @@ import (
 	"syscall"
 
 	"httpsd/internal/app"
+	"httpsd/internal/proxycfg"
 )
 
 // Options controls root helper behavior for staging runtime TLS artifacts and
@@ -26,6 +28,8 @@ type Options struct {
 	HTTPAddr      string
 	HTTPSAddr     string
 	RunUser       string
+	ConfigSource  string
+	ConfigDest    string
 	TLSCertSource string
 	TLSKeySource  string
 	TLSCertDest   string
@@ -39,6 +43,8 @@ func DefaultOptions() Options {
 		HTTPAddr:      app.DefaultHTTPAddr,
 		HTTPSAddr:     app.DefaultHTTPSAddr,
 		RunUser:       app.DefaultRunUser,
+		ConfigSource:  app.DefaultConfigPath,
+		ConfigDest:    app.DefaultRuntimeConfigPath,
 		TLSCertSource: app.DefaultTLSSourceCertPath,
 		TLSKeySource:  app.DefaultTLSSourceKeyPath,
 		TLSCertDest:   app.DefaultRuntimeTLSCertPath,
@@ -83,7 +89,7 @@ func Run(opts Options) error {
 	if err := stageTLSArtifacts(opts, runUID, runGID); err != nil {
 		return err
 	}
-	fmt.Printf("staged runtime TLS artifacts cert=%s key=%s owner=%s\n", opts.TLSCertDest, opts.TLSKeyDest, opts.RunUser)
+	fmt.Printf("staged runtime artifacts config=%s cert=%s key=%s owner=%s\n", opts.ConfigDest, opts.TLSCertDest, opts.TLSKeyDest, opts.RunUser)
 
 	if opts.PrepareOnly {
 		fmt.Println("prepare-only mode complete")
@@ -109,8 +115,12 @@ func Run(opts Options) error {
 func validateRunTLSDirs(opts Options) error {
 	certDir := filepath.Clean(filepath.Dir(opts.TLSCertDest))
 	keyDir := filepath.Clean(filepath.Dir(opts.TLSKeyDest))
+	configDir := filepath.Clean(filepath.Dir(opts.ConfigDest))
 	if certDir != keyDir {
 		return fmt.Errorf("runtime TLS destinations must share one directory: cert dir=%s key dir=%s", certDir, keyDir)
+	}
+	if certDir != configDir {
+		return fmt.Errorf("runtime config and TLS destinations must share one directory: config dir=%s tls dir=%s", configDir, certDir)
 	}
 	if !strings.HasPrefix(certDir, "/run/") {
 		return fmt.Errorf("runtime TLS directory must be under /run: %s", certDir)
@@ -122,6 +132,9 @@ func ensureRuntimeTLSDir(opts Options, uid, gid int) error {
 	runtimeDir := filepath.Clean(filepath.Dir(opts.TLSCertDest))
 	if runtimeDir != filepath.Clean(filepath.Dir(opts.TLSKeyDest)) {
 		return fmt.Errorf("runtime TLS destinations must share one directory")
+	}
+	if runtimeDir != filepath.Clean(filepath.Dir(opts.ConfigDest)) {
+		return fmt.Errorf("runtime config and TLS destinations must share one directory")
 	}
 
 	st, err := os.Stat(runtimeDir)
@@ -184,6 +197,10 @@ func runGetent(database, key string) (string, error) {
 }
 
 func stageTLSArtifacts(opts Options, uid, gid int) error {
+	if err := stageConfigArtifact(opts, uid, gid); err != nil {
+		return err
+	}
+
 	if err := validateTLSBundleOrder(opts.TLSCertSource); err != nil {
 		return fmt.Errorf("validate tls cert bundle order: %w", err)
 	}
@@ -200,6 +217,28 @@ func stageTLSArtifacts(opts Options, uid, gid int) error {
 	}
 	if err := os.Chown(opts.TLSKeyDest, uid, gid); err != nil {
 		return fmt.Errorf("chown staged key %s: %w", opts.TLSKeyDest, err)
+	}
+
+	return nil
+}
+
+func stageConfigArtifact(opts Options, uid, gid int) error {
+	cfg, err := proxycfg.Load(opts.ConfigSource)
+	if err != nil {
+		return fmt.Errorf("load config source %s: %w", opts.ConfigSource, err)
+	}
+
+	jsonConfig, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal config json for %s: %w", opts.ConfigDest, err)
+	}
+	jsonConfig = append(jsonConfig, '\n')
+
+	if err := writeFileAtomic(opts.ConfigDest, jsonConfig, 0o640); err != nil {
+		return fmt.Errorf("stage runtime config %s: %w", opts.ConfigDest, err)
+	}
+	if err := os.Chown(opts.ConfigDest, uid, gid); err != nil {
+		return fmt.Errorf("chown staged config %s: %w", opts.ConfigDest, err)
 	}
 
 	return nil
@@ -280,6 +319,35 @@ func copyFileAtomic(src, dst string, mode os.FileMode) error {
 		return err
 	}
 	if _, err := io.Copy(tmp, in); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, dst); err != nil {
+		return err
+	}
+	return nil
+}
+
+func writeFileAtomic(dst string, content []byte, mode os.FileMode) error {
+	dir := filepath.Dir(dst)
+	base := filepath.Base(dst)
+	tmp, err := os.CreateTemp(dir, base+".tmp-")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
+
+	if err := tmp.Chmod(mode); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(content); err != nil {
 		_ = tmp.Close()
 		return err
 	}

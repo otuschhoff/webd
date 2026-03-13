@@ -1,9 +1,11 @@
 package proxycfg
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -13,17 +15,17 @@ import (
 // Route maps a URL path prefix to an upstream base URL.
 type Route struct {
 	// PathPrefix is matched against the incoming request path.
-	PathPrefix string `yaml:"path_prefix"`
+	PathPrefix string `yaml:"path_prefix" json:"path_prefix"`
 	// Upstream is the absolute HTTP or HTTPS upstream base URL.
-	Upstream string `yaml:"upstream"`
+	Upstream string `yaml:"upstream" json:"upstream"`
 }
 
 // Config is the root YAML configuration for reverse-proxy routes.
 type Config struct {
-	Routes []Route `yaml:"routes"`
+	Routes []Route `yaml:"routes" json:"routes"`
 }
 
-// Load reads, parses, and validates a YAML configuration file.
+// Load reads, parses, and validates a YAML or JSON configuration file.
 func Load(path string) (*Config, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -31,8 +33,16 @@ func Load(path string) (*Config, error) {
 	}
 
 	var cfg Config
-	if err := yaml.Unmarshal(b, &cfg); err != nil {
-		return nil, fmt.Errorf("parse config %s: %w", path, err)
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".json":
+		if err := json.Unmarshal(b, &cfg); err != nil {
+			return nil, fmt.Errorf("parse config %s as json: %w", path, err)
+		}
+	default:
+		if err := yaml.Unmarshal(b, &cfg); err != nil {
+			return nil, fmt.Errorf("parse config %s as yaml: %w", path, err)
+		}
 	}
 
 	if err := Validate(&cfg); err != nil {

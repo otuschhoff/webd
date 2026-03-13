@@ -4,6 +4,7 @@ package app
 // DefaultTLSSourceCertPath is the default source TLS certificate bundle path.
 // DefaultTLSSourceKeyPath is the default source TLS private key path.
 // DefaultRuntimeTLSDir is the runtime directory used for staged TLS artifacts.
+// DefaultRuntimeConfigPath is the staged runtime JSON config path.
 // DefaultRuntimeTLSCertPath is the staged runtime TLS certificate path.
 // DefaultRuntimeTLSKeyPath is the staged runtime TLS private key path.
 // DefaultTLSCertPath is the default TLS certificate path used by the running server.
@@ -20,6 +21,7 @@ const (
 	DefaultTLSSourceCertPath  = "/etc/pki/tls/certs/self.crt"
 	DefaultTLSSourceKeyPath   = "/etc/pki/tls/private/self.key"
 	DefaultRuntimeTLSDir      = "/run/httpsd"
+	DefaultRuntimeConfigPath  = "/run/httpsd/config.json"
 	DefaultRuntimeTLSCertPath = "/run/httpsd/tls.crt"
 	DefaultRuntimeTLSKeyPath  = "/run/httpsd/tls.key"
 	DefaultTLSCertPath        = DefaultRuntimeTLSCertPath

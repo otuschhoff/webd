@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	configPath    = "/etc/httpsd/config.yaml"
+	configPath    = "/run/httpsd/config.json"
 	tlsCertPath   = "/run/httpsd/tls.crt"
 	tlsKeyPath    = "/run/httpsd/tls.key"
 	resolvConf    = "/etc/resolv.conf"
