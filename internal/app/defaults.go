@@ -1,35 +1,29 @@
 package app
 
-// DefaultConfigPath is the default YAML configuration file location.
-// DefaultTLSSourceCertPath is the default source TLS certificate bundle path.
-// DefaultTLSSourceKeyPath is the default source TLS private key path.
-// DefaultRuntimeTLSDir is the runtime directory used for staged TLS artifacts.
-// DefaultRuntimeConfigPath is the staged runtime JSON config path.
-// DefaultRuntimeTLSCertPath is the staged runtime TLS certificate path.
-// DefaultRuntimeTLSKeyPath is the staged runtime TLS private key path.
-// DefaultRuntimeTrustedCADir is the runtime directory used for staged upstream CA bundles.
-// DefaultTLSCertPath is the default TLS certificate path used by the running server.
-// DefaultTLSKeyPath is the default TLS private key path used by the running server.
-// DefaultRunUser is the default non-root runtime account for the daemon.
-// DefaultHTTPAddr is the default HTTP listen address.
-// DefaultHTTPSAddr is the default HTTPS listen address.
-// DefaultBinaryPath is the default installed binary path used by setup and systemd.
-// DefaultServicePath is the default systemd unit file path.
+// Base paths used to derive default filesystem locations.
 const (
-	DefaultConfigPath          = "/etc/webd/config.yaml"
+	defaultEtcDir            = "/etc/web"
+	defaultRuntimeDir        = "/run/webd"
+	defaultInstallCurrentDir = "/opt/web/current"
+	defaultLibexecDir        = defaultInstallCurrentDir + "/libexec"
+)
+
+// Public defaults shared by daemon and control-plane commands.
+const (
+	DefaultConfigPath          = defaultEtcDir + "/config.yaml"
 	DefaultTLSSourceCertPath   = "/etc/pki/tls/certs/self.crt"
 	DefaultTLSSourceKeyPath    = "/etc/pki/tls/private/self.key"
-	DefaultRuntimeTLSDir       = "/run/webd"
-	DefaultRuntimeConfigPath   = "/run/webd/config.json"
-	DefaultRuntimeTLSCertPath  = "/run/webd/tls.crt"
-	DefaultRuntimeTLSKeyPath   = "/run/webd/tls.key"
-	DefaultRuntimeTrustedCADir = "/run/webd"
+	DefaultRuntimeTLSDir       = defaultRuntimeDir
+	DefaultRuntimeConfigPath   = defaultRuntimeDir + "/config.json"
+	DefaultRuntimeTLSCertPath  = defaultRuntimeDir + "/tls.crt"
+	DefaultRuntimeTLSKeyPath   = defaultRuntimeDir + "/tls.key"
+	DefaultRuntimeTrustedCADir = defaultRuntimeDir
 	DefaultTLSCertPath         = DefaultRuntimeTLSCertPath
 	DefaultTLSKeyPath          = DefaultRuntimeTLSKeyPath
 	DefaultRunUser             = "webd"
 	DefaultHTTPAddr            = ":80"
 	DefaultHTTPSAddr           = ":443"
-	DefaultBinaryPath          = "/opt/webd/current/libexec/webd"
+	DefaultBinaryPath          = defaultLibexecDir + "/webd"
 	DefaultServicePath         = "/etc/systemd/system/webd.service"
 )
 
@@ -52,12 +46,12 @@ RuntimeDirectoryMode=0750
 RootDirectory=/run/webd
 RootDirectoryStartOnly=true
 WorkingDirectory=/
-BindReadOnlyPaths=/opt/webd/current/libexec/webd
-BindReadOnlyPaths=/opt/webd/current/sbin/webctl
+BindReadOnlyPaths=/opt/web/current/libexec/webd
+BindReadOnlyPaths=/opt/web/current/sbin/webctl
 BindPaths=/dev/log
-ExecStartPre=/opt/webd/current/sbin/webctl reload --prepare-only
-ExecStart=/opt/webd/current/libexec/webd
-ExecReload=/opt/webd/current/sbin/webctl reload
+ExecStartPre=/opt/web/current/sbin/webctl reload --prepare-only
+ExecStart=/opt/web/current/libexec/webd
+ExecReload=/opt/web/current/sbin/webctl reload
 Restart=on-failure
 
 # Security: grant low-port bind capability at service runtime
