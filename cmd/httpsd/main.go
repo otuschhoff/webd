@@ -13,7 +13,6 @@ const (
 	configPath    = "config.json"
 	tlsCertPath   = "tls.crt"
 	tlsKeyPath    = "tls.key"
-	resolvConf    = "/etc/resolv.conf"
 	httpAddr      = ":80"
 	httpsAddr     = ":443"
 	minRuntimeUID = 500
@@ -41,7 +40,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	for _, path := range []string{configPath, tlsCertPath, tlsKeyPath, resolvConf} {
+	for _, path := range []string{configPath, tlsCertPath, tlsKeyPath} {
 		if _, err := os.ReadFile(path); err != nil {
 			errLog.Printf("fatal: read required file %s failed: %v", path, err)
 			os.Exit(1)
