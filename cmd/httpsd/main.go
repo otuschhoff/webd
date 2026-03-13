@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 
-	"httpsd/internal/app"
 	"httpsd/internal/server"
 	"httpsd/internal/syslogx"
 )
@@ -47,7 +46,7 @@ func main() {
 		}
 	}
 
-	opts := app.RunOptions{
+	opts := server.RunOptions{
 		ConfigPath:  configPath,
 		HTTPAddr:    httpAddr,
 		HTTPSAddr:   httpsAddr,

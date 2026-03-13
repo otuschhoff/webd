@@ -24,6 +24,10 @@ import (
 	"httpsd/internal/syslogx"
 )
 
+// RunOptions defines daemon runtime options accepted by Run.
+// It aliases app.RunOptions so callers of internal/server do not need to import internal/app.
+type RunOptions = app.RunOptions
+
 type routeProxy struct {
 	prefix string
 	proxy  *httputil.ReverseProxy
@@ -50,7 +54,7 @@ func (p *byteSlicePool) Put(b []byte) {
 }
 
 // Run starts the HTTP and HTTPS reverse proxy servers and handles SIGHUP reloads.
-func Run(opts app.RunOptions) error {
+func Run(opts RunOptions) error {
 	logs, err := syslogx.New("httpsd", true)
 	if err != nil {
 		return fmt.Errorf("setup syslog loggers: %w", err)
