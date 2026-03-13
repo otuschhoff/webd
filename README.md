@@ -14,37 +14,39 @@
 Build a local binary:
 
 ```sh
-CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
-  -o ./httpsd ./cmd/httpsd
+mkdir -p ./bin
 
 CGO_ENABLED=0 go build \
   -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
-  -o ./httpsdctl ./cmd/httpsdctl
+  -o ./bin/httpsd ./cmd/httpsd
+
+CGO_ENABLED=0 go build \
+  -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -o ./bin/httpsdctl ./cmd/httpsdctl
 ```
 
 Run the proxy server:
 
 ```sh
-./httpsd
+./bin/httpsd
 ```
 
 Reload config + TLS on a running process:
 
 ```sh
-./httpsdctl reload
+./bin/httpsdctl reload
 ```
 
 Validate and pretty-print config:
 
 ```sh
-./httpsdctl check --config /etc/httpsd/config.yaml
+./bin/httpsdctl check --config /etc/httpsd/config.yaml
 ```
 
 Host setup (root required):
 
 ```sh
-sudo ./httpsdctl setup
+sudo ./bin/httpsdctl setup
 ```
 
 ## Configuration
@@ -116,20 +118,57 @@ Examples:
 
 ```sh
 xc -s -no-tty     # list task names
-xc build          # build ./httpsd from ./cmd/httpsd
+xc build          # alias for xc build-all
+xc build-all      # build both binaries into ./bin/
+xc build-server   # build ./bin/httpsd from ./cmd/httpsd
+xc build-client   # build ./bin/httpsdctl from ./cmd/httpsdctl
 xc test           # run all tests
 xc check          # validate config.example.yaml
-./httpsd --version
+./bin/httpsd --version
 ```
 
 ## Tasks
 
-### build
+### build-client
 
 ```sh
+mkdir -p ./bin
+
 CGO_ENABLED=0 go build \
   -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
-  -o ./httpsd ./cmd/httpsd
+  -o ./bin/httpsdctl ./cmd/httpsdctl
+```
+
+### build-server
+
+```sh
+mkdir -p ./bin
+
+CGO_ENABLED=0 go build \
+  -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -o ./bin/httpsd ./cmd/httpsd
+```
+
+### build-all
+
+```sh
+mkdir -p ./bin
+
+CGO_ENABLED=0 go build \
+  -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -o ./bin/httpsd ./cmd/httpsd
+
+CGO_ENABLED=0 go build \
+  -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -o ./bin/httpsdctl ./cmd/httpsdctl
+```
+
+### build
+
+Alias for `build-all`:
+
+```sh
+xc build-all
 ```
 
 ### test
@@ -141,44 +180,52 @@ go test ./...
 ### check
 
 ```sh
+mkdir -p ./bin
+
 CGO_ENABLED=0 go build \
   -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
-  -o ./httpsd ./cmd/httpsd
+  -o ./bin/httpsd ./cmd/httpsd
 CGO_ENABLED=0 go build \
   -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
-  -o ./httpsdctl ./cmd/httpsdctl
-./httpsdctl check --config ./config.example.yaml
+  -o ./bin/httpsdctl ./cmd/httpsdctl
+./bin/httpsdctl check --config ./config.example.yaml
 ```
 
 ### run
 
 ```sh
+mkdir -p ./bin
+
 CGO_ENABLED=0 go build \
   -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
-  -o ./httpsd ./cmd/httpsd
-./httpsd
+  -o ./bin/httpsd ./cmd/httpsd
+./bin/httpsd
 ```
 
 ### reload
 
 ```sh
+mkdir -p ./bin
+
 CGO_ENABLED=0 go build \
   -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
-  -o ./httpsd ./cmd/httpsd
+  -o ./bin/httpsd ./cmd/httpsd
 CGO_ENABLED=0 go build \
   -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
-  -o ./httpsdctl ./cmd/httpsdctl
-./httpsdctl reload
+  -o ./bin/httpsdctl ./cmd/httpsdctl
+./bin/httpsdctl reload
 ```
 
 ### setup
 
 ```sh
+mkdir -p ./bin
+
 CGO_ENABLED=0 go build \
   -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
-  -o ./httpsd ./cmd/httpsd
+  -o ./bin/httpsd ./cmd/httpsd
 CGO_ENABLED=0 go build \
   -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
-  -o ./httpsdctl ./cmd/httpsdctl
-sudo ./httpsdctl setup
+  -o ./bin/httpsdctl ./cmd/httpsdctl
+sudo ./bin/httpsdctl setup
 ```
