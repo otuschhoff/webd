@@ -39,6 +39,11 @@ type groupEntry struct {
 	members []string
 }
 
+const (
+	httpsdMinUID = 500
+	httpsdMaxUID = 999
+)
+
 // Run prepares the host for httpsd by creating accounts, fixing permissions,
 // installing capabilities, provisioning config, and updating the systemd unit.
 func Run(opts app.SetupOptions) error {
@@ -54,12 +59,15 @@ func Run(opts app.SetupOptions) error {
 		fmt.Printf("created group httpsd gid=%d\n", httpsdGroup)
 	}
 
-	httpsdUID, httpsdPrimaryGID, httpsdUserCreated, err := ensureUserExists("httpsd", httpsdGroup)
+	httpsdUID, httpsdPrimaryGID, httpsdUserCreated, httpsdUIDChanged, err := ensureUserExists("httpsd", httpsdGroup)
 	if err != nil {
 		return err
 	}
 	if httpsdUserCreated {
 		fmt.Printf("created user httpsd uid=%d gid=%d\n", httpsdUID, httpsdPrimaryGID)
+	}
+	if httpsdUIDChanged {
+		fmt.Printf("updated user httpsd uid=%d gid=%d to enforce allowed uid range %d-%d\n", httpsdUID, httpsdPrimaryGID, httpsdMinUID, httpsdMaxUID)
 	}
 
 	tlskeyGID, tlskeyCreated, err := ensureGroupExists("tlskey", -1)
@@ -484,24 +492,37 @@ func ensureNetBindCapability(binaryPath string) error {
 	return nil
 }
 
-func ensureUserExists(name string, defaultGID int) (uid int, gid int, created bool, err error) {
-	entries, err := readPasswdEntries()
+func ensureUserExists(name string, defaultGID int) (uid int, gid int, created bool, uidChanged bool, err error) {
+	entries, lines, err := readPasswdEntriesAndLines()
 	if err != nil {
-		return 0, 0, false, err
+		return 0, 0, false, false, err
 	}
-	for _, e := range entries {
+	for i, e := range entries {
 		if e.name == name {
-			return e.uid, e.gid, false, nil
+			if uidWithinRange(e.uid, httpsdMinUID, httpsdMaxUID) {
+				return e.uid, e.gid, false, false, nil
+			}
+			nextUID, rangeErr := nextAvailableUID(entries, httpsdMinUID, httpsdMaxUID)
+			if rangeErr != nil {
+				return 0, 0, false, false, fmt.Errorf("select replacement uid for %s: %w", name, rangeErr)
+			}
+			if err := rewritePasswdUID(lines, i, nextUID); err != nil {
+				return 0, 0, false, false, fmt.Errorf("rewrite /etc/passwd uid for %s: %w", name, err)
+			}
+			return nextUID, e.gid, false, true, nil
 		}
 	}
 
-	nextUID := nextAvailableUID(entries)
+	nextUID, err := nextAvailableUID(entries, httpsdMinUID, httpsdMaxUID)
+	if err != nil {
+		return 0, 0, false, false, fmt.Errorf("select uid for %s: %w", name, err)
+	}
 	gid = defaultGID
 	line := fmt.Sprintf("%s:x:%d:%d:%s service user:/nonexistent:/usr/sbin/nologin", name, nextUID, gid, name)
 	if err := appendLine("/etc/passwd", line); err != nil {
-		return 0, 0, false, fmt.Errorf("append /etc/passwd: %w", err)
+		return 0, 0, false, false, fmt.Errorf("append /etc/passwd: %w", err)
 	}
-	return nextUID, gid, true, nil
+	return nextUID, gid, true, false, nil
 }
 
 func ensureGroupExists(name string, preferredGID int) (gid int, created bool, err error) {
@@ -730,9 +751,14 @@ func runReadonlyAccountChecker(tool string, args ...string) error {
 }
 
 func readPasswdEntries() ([]passwdEntry, error) {
+	entries, _, err := readPasswdEntriesAndLines()
+	return entries, err
+}
+
+func readPasswdEntriesAndLines() ([]passwdEntry, []string, error) {
 	lines, err := readLines("/etc/passwd")
 	if err != nil {
-		return nil, fmt.Errorf("read /etc/passwd: %w", err)
+		return nil, nil, fmt.Errorf("read /etc/passwd: %w", err)
 	}
 
 	entries := make([]passwdEntry, 0)
@@ -751,7 +777,7 @@ func readPasswdEntries() ([]passwdEntry, error) {
 		}
 		entries = append(entries, passwdEntry{name: parts[0], uid: uid, gid: gid})
 	}
-	return entries, nil
+	return entries, lines, nil
 }
 
 func readGroupEntriesAndLines() ([]groupEntry, []string, error) {
@@ -787,14 +813,38 @@ func readGroupEntriesAndLines() ([]groupEntry, []string, error) {
 	return entries, lines, nil
 }
 
-func nextAvailableUID(entries []passwdEntry) int {
-	maxUID := 999
+func nextAvailableUID(entries []passwdEntry, minUID, maxUID int) (int, error) {
+	used := make(map[int]struct{}, len(entries))
 	for _, e := range entries {
-		if e.uid > maxUID {
-			maxUID = e.uid
+		used[e.uid] = struct{}{}
+	}
+	for uid := minUID; uid <= maxUID; uid++ {
+		if _, ok := used[uid]; !ok {
+			return uid, nil
 		}
 	}
-	return maxUID + 1
+	return 0, fmt.Errorf("no available uid in range %d-%d", minUID, maxUID)
+}
+
+func uidWithinRange(uid, minUID, maxUID int) bool {
+	return uid >= minUID && uid <= maxUID
+}
+
+func rewritePasswdUID(lines []string, entryIndex, newUID int) error {
+	matched := -1
+	for i, line := range lines {
+		parts := strings.Split(line, ":")
+		if len(parts) != 7 {
+			continue
+		}
+		if matched == entryIndex {
+			parts[2] = strconv.Itoa(newUID)
+			lines[i] = strings.Join(parts, ":")
+			return writeLines("/etc/passwd", lines)
+		}
+		matched++
+	}
+	return fmt.Errorf("passwd entry index %d not found", entryIndex)
 }
 
 func gidInUse(entries []groupEntry, gid int) bool {
