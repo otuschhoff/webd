@@ -74,6 +74,7 @@ SystemCallFilter=~@clock @debug @module @mount @obsolete @privileged @raw-io @re
 
 # Resources
 MemoryMax=32M
+Environment=GOMEMLIMIT=24MiB
 
 # Jailing
 ProtectSystem=strict
