@@ -10,8 +10,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"os/user"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,7 +20,6 @@ import (
 
 	"httpsd/internal/app"
 	"httpsd/internal/proxycfg"
-	"httpsd/internal/reloadcmd"
 )
 
 type routeProxy struct {
@@ -52,28 +49,8 @@ func (p *byteSlicePool) Put(b []byte) {
 
 // Run starts the HTTP and HTTPS reverse proxy servers and handles SIGHUP reloads.
 func Run(opts app.RunOptions) error {
-	log.Printf("startup begin pid=%d uid=%d euid=%d run_user=%q force=%t", os.Getpid(), os.Getuid(), os.Geteuid(), opts.RunUser, opts.Force)
-	if current, err := user.LookupId(strconv.Itoa(os.Geteuid())); err == nil {
-		log.Printf("startup identity user=%q uid=%s gid=%s home=%q", current.Username, current.Uid, current.Gid, current.HomeDir)
-	} else {
-		log.Printf("startup identity lookup failed: %v", err)
-	}
+	log.Printf("startup begin pid=%d uid=%d euid=%d", os.Getpid(), os.Getuid(), os.Geteuid())
 	log.Printf("startup paths config=%q tls_cert=%q tls_key=%q access_log=%q", opts.ConfigPath, opts.TLSCertPath, opts.TLSKeyPath, opts.AccessLogPath)
-	logFileMetadata("config", opts.ConfigPath)
-	logFileMetadata("tls_cert", opts.TLSCertPath)
-	logFileMetadata("tls_key", opts.TLSKeyPath)
-
-	if os.Geteuid() == 0 {
-		if err := bootstrapRootRun(opts); err != nil {
-			return err
-		}
-		log.Printf("startup privilege drop complete uid=%d euid=%d user=%q", os.Getuid(), os.Geteuid(), opts.RunUser)
-	}
-
-	if err := enforceRuntimeUser(opts); err != nil {
-		return err
-	}
-	log.Printf("runtime user enforcement passed")
 
 	cfg, err := proxycfg.Load(opts.ConfigPath)
 	if err != nil {
@@ -195,167 +172,6 @@ func closeRouteProxies(routes []routeProxy) {
 			closer.CloseIdleConnections()
 		}
 	}
-}
-
-func bootstrapRootRun(opts app.RunOptions) error {
-	uid, gid, groupIDs, account, err := lookupRuntimeAccount(opts.RunUser)
-	if err != nil {
-		return err
-	}
-
-	if err := validateRuntimeTLSPrepared(opts, uid, gid); err != nil {
-		log.Printf("startup root bootstrap: runtime TLS artifacts not ready: %v", err)
-		reloadOpts := reloadcmd.DefaultOptions()
-		reloadOpts.HTTPAddr = opts.HTTPAddr
-		reloadOpts.HTTPSAddr = opts.HTTPSAddr
-		reloadOpts.RunUser = opts.RunUser
-		reloadOpts.TLSCertDest = opts.TLSCertPath
-		reloadOpts.TLSKeyDest = opts.TLSKeyPath
-		reloadOpts.PrepareOnly = true
-		if err := reloadcmd.Run(reloadOpts); err != nil {
-			return fmt.Errorf("startup root bootstrap prepare-only failed: %w", err)
-		}
-		if err := validateRuntimeTLSPrepared(opts, uid, gid); err != nil {
-			return fmt.Errorf("startup root bootstrap validation failed after prepare-only: %w", err)
-		}
-	} else {
-		log.Printf("startup root bootstrap: runtime TLS artifacts already prepared")
-	}
-
-	if err := dropPrivileges(uid, gid, groupIDs, account); err != nil {
-		return err
-	}
-	return nil
-}
-
-func logFileMetadata(kind, path string) {
-	st, err := os.Stat(path)
-	if err != nil {
-		log.Printf("startup file check kind=%s path=%q err=%v", kind, path, err)
-		return
-	}
-	mode := st.Mode().Perm()
-	log.Printf("startup file check kind=%s path=%q mode=%#o size=%d mtime=%s", kind, path, mode, st.Size(), st.ModTime().UTC().Format(time.RFC3339))
-}
-
-func enforceRuntimeUser(opts app.RunOptions) error {
-	expected := strings.TrimSpace(opts.RunUser)
-	if expected == "" {
-		return fmt.Errorf("run-user cannot be empty")
-	}
-
-	if opts.Force {
-		return nil
-	}
-
-	current, err := user.LookupId(strconv.Itoa(os.Geteuid()))
-	if err != nil {
-		return fmt.Errorf("resolve current user: %w", err)
-	}
-
-	if current.Username != expected {
-		return fmt.Errorf("refusing to run as user %q; expected %q (use --force to override)", current.Username, expected)
-	}
-
-	return nil
-}
-
-func lookupRuntimeAccount(name string) (int, int, []int, *user.User, error) {
-	account, err := user.Lookup(strings.TrimSpace(name))
-	if err != nil {
-		return 0, 0, nil, nil, fmt.Errorf("resolve run user %q: %w", name, err)
-	}
-	uid, err := strconv.Atoi(account.Uid)
-	if err != nil {
-		return 0, 0, nil, nil, fmt.Errorf("parse uid for run user %q: %w", name, err)
-	}
-	gid, err := strconv.Atoi(account.Gid)
-	if err != nil {
-		return 0, 0, nil, nil, fmt.Errorf("parse gid for run user %q: %w", name, err)
-	}
-	groupIDs, err := account.GroupIds()
-	if err != nil {
-		return 0, 0, nil, nil, fmt.Errorf("resolve supplementary groups for run user %q: %w", name, err)
-	}
-	parsedGroupIDs := make([]int, 0, len(groupIDs))
-	seen := map[int]struct{}{gid: {}}
-	parsedGroupIDs = append(parsedGroupIDs, gid)
-	for _, raw := range groupIDs {
-		groupID, err := strconv.Atoi(raw)
-		if err != nil {
-			return 0, 0, nil, nil, fmt.Errorf("parse supplementary gid %q for run user %q: %w", raw, name, err)
-		}
-		if _, ok := seen[groupID]; ok {
-			continue
-		}
-		seen[groupID] = struct{}{}
-		parsedGroupIDs = append(parsedGroupIDs, groupID)
-	}
-	sort.Ints(parsedGroupIDs)
-	return uid, gid, parsedGroupIDs, account, nil
-}
-
-func validateRuntimeTLSPrepared(opts app.RunOptions, uid, gid int) error {
-	runtimeDir := filepath.Clean(filepath.Dir(opts.TLSCertPath))
-	if runtimeDir != filepath.Clean(filepath.Dir(opts.TLSKeyPath)) {
-		return fmt.Errorf("tls cert and key must share one runtime directory")
-	}
-	if err := validateOwnedPath(runtimeDir, uid, gid, 0o750, true); err != nil {
-		return fmt.Errorf("runtime dir %s: %w", runtimeDir, err)
-	}
-	if err := validateOwnedPath(opts.TLSCertPath, uid, gid, 0o640, false); err != nil {
-		return fmt.Errorf("tls cert %s: %w", opts.TLSCertPath, err)
-	}
-	if err := validateOwnedPath(opts.TLSKeyPath, uid, gid, 0o600, false); err != nil {
-		return fmt.Errorf("tls key %s: %w", opts.TLSKeyPath, err)
-	}
-	return nil
-}
-
-func validateOwnedPath(path string, uid, gid int, mode os.FileMode, wantDir bool) error {
-	st, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-	if st.IsDir() != wantDir {
-		if wantDir {
-			return fmt.Errorf("is not a directory")
-		}
-		return fmt.Errorf("is not a regular file")
-	}
-	if st.Mode().Perm() != mode {
-		return fmt.Errorf("mode=%#o want=%#o", st.Mode().Perm(), mode)
-	}
-	statT, ok := st.Sys().(*syscall.Stat_t)
-	if !ok {
-		return fmt.Errorf("stat owner metadata unavailable")
-	}
-	if int(statT.Uid) != uid || int(statT.Gid) != gid {
-		return fmt.Errorf("owner uid=%d gid=%d want uid=%d gid=%d", statT.Uid, statT.Gid, uid, gid)
-	}
-	return nil
-}
-
-func dropPrivileges(uid, gid int, groupIDs []int, account *user.User) error {
-	if err := syscall.Setgroups(groupIDs); err != nil {
-		return fmt.Errorf("set supplementary groups for %q: %w", account.Username, err)
-	}
-	if err := syscall.Setgid(gid); err != nil {
-		return fmt.Errorf("set gid=%d for %q: %w", gid, account.Username, err)
-	}
-	if err := syscall.Setuid(uid); err != nil {
-		return fmt.Errorf("set uid=%d for %q: %w", uid, account.Username, err)
-	}
-	if err := os.Setenv("HOME", account.HomeDir); err != nil {
-		return fmt.Errorf("set HOME for %q: %w", account.Username, err)
-	}
-	if err := os.Setenv("USER", account.Username); err != nil {
-		return fmt.Errorf("set USER for %q: %w", account.Username, err)
-	}
-	if err := os.Setenv("LOGNAME", account.Username); err != nil {
-		return fmt.Errorf("set LOGNAME for %q: %w", account.Username, err)
-	}
-	return nil
 }
 
 func buildRouteProxies(cfg *proxycfg.Config) ([]routeProxy, error) {
