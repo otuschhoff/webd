@@ -1,4 +1,4 @@
-package runtimecfg
+package server
 
 import (
 	"encoding/json"

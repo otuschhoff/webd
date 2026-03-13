@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"httpsd/internal/app"
-	"httpsd/internal/runtimecfg"
 	"httpsd/internal/syslogx"
 )
 
@@ -65,7 +64,7 @@ func Run(opts app.RunOptions) error {
 	opsLog.Printf("startup begin pid=%d uid=%d euid=%d", os.Getpid(), os.Getuid(), os.Geteuid())
 	opsLog.Printf("startup paths config=%q tls_cert=%q tls_key=%q", opts.ConfigPath, opts.TLSCertPath, opts.TLSKeyPath)
 
-	cfg, err := runtimecfg.LoadJSON(opts.ConfigPath)
+	cfg, err := LoadJSON(opts.ConfigPath)
 	if err != nil {
 		errLog.Printf("config load failed path=%q err=%v", opts.ConfigPath, err)
 		return fmt.Errorf("config error: %w", err)
@@ -121,7 +120,7 @@ func Run(opts app.RunOptions) error {
 	defer signal.Stop(sigCh)
 	go func() {
 		for range sigCh {
-			cfgNow, cfgErr := runtimecfg.LoadJSON(opts.ConfigPath)
+			cfgNow, cfgErr := LoadJSON(opts.ConfigPath)
 			if cfgErr != nil {
 				errLog.Printf("config reload failed: %v", cfgErr)
 			} else {
@@ -186,7 +185,7 @@ func closeRouteProxies(routes []routeProxy) {
 	}
 }
 
-func buildRouteProxies(cfg *runtimecfg.Config, errLog *log.Logger) ([]routeProxy, error) {
+func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 	routes := make([]routeProxy, 0, len(cfg.Routes))
 
 	for _, r := range cfg.Routes {

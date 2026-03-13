@@ -4,15 +4,13 @@ import (
 	"github.com/spf13/cobra"
 
 	"httpsd/internal/app"
-	"httpsd/internal/reloadcmd"
-	"httpsd/internal/setup"
 )
 
 // ExecuteControl runs the control-plane CLI (check, reload, setup).
 func ExecuteControl() error {
 	runOpts := app.DefaultRunOptions()
 	setupOpts := app.DefaultSetupOptions()
-	reloadOpts := reloadcmd.DefaultOptions()
+	reloadOpts := DefaultOptions()
 
 	rootCmd := &cobra.Command{
 		Use:     "httpsdctl",
@@ -36,7 +34,7 @@ func ExecuteControl() error {
 			reloadOpts.ConfigSource = runOpts.ConfigPath
 			reloadOpts.TLSCertDest = runOpts.TLSCertPath
 			reloadOpts.TLSKeyDest = runOpts.TLSKeyPath
-			return reloadcmd.Run(reloadOpts)
+			return Run(reloadOpts)
 		},
 	}
 	reloadCmd.Flags().StringVar(&reloadOpts.TLSCertSource, "tls-cert-source", reloadOpts.TLSCertSource, "Source TLS certificate path copied into runtime TLS path")
@@ -59,7 +57,7 @@ func ExecuteControl() error {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return setup.Run(setupOpts)
+			return runSetup(setupOpts)
 		},
 	}
 	setupCmd.Flags().StringVar(&setupOpts.TLSKeyPath, "tls-key", setupOpts.TLSKeyPath, "TLS private key path for permission setup")

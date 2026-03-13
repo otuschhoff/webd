@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"httpsd/internal/app"
-	"httpsd/internal/proxycfg"
 )
 
 type portProcessInfo struct {
@@ -34,16 +33,16 @@ type checkResult struct {
 }
 
 func runCheck(opts app.RunOptions) error {
-	cfg, err := proxycfg.Load(opts.ConfigPath)
+	cfg, err := Load(opts.ConfigPath)
 	if err != nil {
 		return err
 	}
 
-	pretty, err := proxycfg.PrettyYAML(cfg)
+	pretty, err := PrettyYAML(cfg)
 	if err != nil {
 		return err
 	}
-	fmt.Println(proxycfg.ColorizeYAML(pretty, os.Getenv("NO_COLOR") == ""))
+	fmt.Println(ColorizeYAML(pretty, os.Getenv("NO_COLOR") == ""))
 
 	checkErrs := make([]string, 0)
 
@@ -106,7 +105,7 @@ func checkBindPort(label, addr string) checkResult {
 	return checkResult{failLines: failLines}
 }
 
-func checkUpstreams(cfg *proxycfg.Config) checkResult {
+func checkUpstreams(cfg *Config) checkResult {
 	seen := make(map[string]struct{})
 	result := checkResult{}
 

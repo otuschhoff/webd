@@ -1,4 +1,4 @@
-package proxycfg
+package cli
 
 import (
 	"fmt"

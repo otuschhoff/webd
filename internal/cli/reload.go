@@ -1,11 +1,9 @@
-package reloadcmd
+package cli
 
 import (
 	"bufio"
 	"bytes"
-	"crypto/x509"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -20,7 +18,6 @@ import (
 	"syscall"
 
 	"httpsd/internal/app"
-	"httpsd/internal/proxycfg"
 	"httpsd/internal/syslogx"
 )
 
@@ -332,7 +329,7 @@ func stageTLSArtifacts(opts Options, uid, gid int) error {
 }
 
 func stageConfigArtifact(opts Options, uid, gid int) error {
-	cfg, err := proxycfg.Load(opts.ConfigSource)
+	cfg, err := loadConfig(opts.ConfigSource)
 	if err != nil {
 		return fmt.Errorf("load config source %s: %w", opts.ConfigSource, err)
 	}
@@ -358,14 +355,14 @@ func stageConfigArtifact(opts Options, uid, gid int) error {
 	return nil
 }
 
-func resolveConfigToIPv4(cfg *proxycfg.Config) (*proxycfg.Config, error) {
-	resolved := &proxycfg.Config{Routes: make([]proxycfg.Route, 0, len(cfg.Routes))}
+func resolveConfigToIPv4(cfg *proxyConfig) (*proxyConfig, error) {
+	resolved := &proxyConfig{Routes: make([]proxyRoute, 0, len(cfg.Routes))}
 	for _, route := range cfg.Routes {
 		upstream, err := resolveUpstreamToIPv4(route.Upstream)
 		if err != nil {
 			return nil, fmt.Errorf("route path_prefix=%q upstream=%q: %w", route.PathPrefix, route.Upstream, err)
 		}
-		resolved.Routes = append(resolved.Routes, proxycfg.Route{
+		resolved.Routes = append(resolved.Routes, proxyRoute{
 			PathPrefix: route.PathPrefix,
 			Upstream:   upstream,
 		})
@@ -458,32 +455,6 @@ func validateTLSBundleOrder(certPath string) error {
 	}
 
 	return nil
-}
-
-func parseCertificatesFromPEM(pemBytes []byte) ([]*x509.Certificate, error) {
-	remaining := pemBytes
-	certs := make([]*x509.Certificate, 0)
-	for {
-		block, rest := pem.Decode(remaining)
-		if block == nil {
-			break
-		}
-		remaining = rest
-		if block.Type != "CERTIFICATE" {
-			continue
-		}
-		cert, err := x509.ParseCertificate(block.Bytes)
-		if err != nil {
-			return nil, fmt.Errorf("parse certificate: %w", err)
-		}
-		certs = append(certs, cert)
-	}
-
-	if len(certs) == 0 {
-		return nil, fmt.Errorf("no CERTIFICATE blocks found")
-	}
-
-	return certs, nil
 }
 
 func copyFileAtomic(src, dst string, mode os.FileMode) error {
@@ -585,53 +556,6 @@ func parsePort(addr string) (int, error) {
 		portStr = strings.TrimPrefix(addr, ":")
 	}
 	return strconv.Atoi(portStr)
-}
-
-func listeningInodesForPort(port int) (map[string]struct{}, error) {
-	inodes := make(map[string]struct{})
-	files := []string{"/proc/net/tcp", "/proc/net/tcp6"}
-	portHex := strings.ToUpper(fmt.Sprintf("%04X", port))
-
-	for _, file := range files {
-		f, err := os.Open(file)
-		if err != nil {
-			return nil, fmt.Errorf("open %s: %w", file, err)
-		}
-		scanner := bufio.NewScanner(f)
-		first := true
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if first {
-				first = false
-				continue
-			}
-			fields := strings.Fields(line)
-			if len(fields) < 10 {
-				continue
-			}
-			localAddr := fields[1]
-			state := fields[3]
-			inode := fields[9]
-			parts := strings.Split(localAddr, ":")
-			if len(parts) != 2 {
-				continue
-			}
-			if strings.ToUpper(parts[1]) != portHex {
-				continue
-			}
-			if state != "0A" {
-				continue
-			}
-			inodes[inode] = struct{}{}
-		}
-		if err := scanner.Err(); err != nil {
-			_ = f.Close()
-			return nil, fmt.Errorf("scan %s: %w", file, err)
-		}
-		_ = f.Close()
-	}
-
-	return inodes, nil
 }
 
 func anyPIDOwnsInode(pids []int, inodes map[string]struct{}) bool {
