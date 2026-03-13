@@ -4,13 +4,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"webd/internal/app"
-	"webd/internal/server"
 )
 
 // ExecuteControl runs the control-plane CLI (check, reload, setup, letsencrypt).
 func ExecuteControl() error {
-	runOpts := server.DefaultRunOptions()
-	setupOpts := app.DefaultSetupOptions()
+	runOpts := DefaultRunOptions()
+	setupOpts := DefaultSetupOptions()
 	reloadOpts := DefaultOptions()
 	letsEncryptOpts := defaultLetsEncryptOptions()
 

@@ -39,9 +39,9 @@ func defaultLetsEncryptOptions() LetsEncryptOptions {
 		Host:         "",
 		Email:        "",
 		DirectoryURL: acme.LetsEncryptURL,
-		ChallengeDir: filepath.Join(app.DefaultRuntimeTLSDir, "acme-challenge"),
-		CertPath:     app.DefaultTLSSourceCertPath,
-		KeyPath:      app.DefaultTLSSourceKeyPath,
+		ChallengeDir: filepath.Join(DefaultRuntimeTLSDir, "acme-challenge"),
+		CertPath:     DefaultTLSSourceCertPath,
+		KeyPath:      DefaultTLSSourceKeyPath,
 		Deploy:       true,
 		Reload:       reload,
 	}

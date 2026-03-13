@@ -1,4 +1,6 @@
-package app
+package cli
+
+import "webd/internal/server"
 
 // Base paths used to derive default filesystem locations.
 const (
@@ -79,6 +81,17 @@ type SetupOptions struct {
 	BinaryPath string
 	// Force allows setup to overwrite an existing, non-matching systemd unit file.
 	Force bool
+}
+
+// DefaultRunOptions returns runtime defaults used by control-plane commands.
+func DefaultRunOptions() server.RunOptions {
+	return server.RunOptions{
+		ConfigPath:  DefaultConfigPath,
+		HTTPAddr:    DefaultHTTPAddr,
+		HTTPSAddr:   DefaultHTTPSAddr,
+		TLSCertPath: DefaultTLSCertPath,
+		TLSKeyPath:  DefaultTLSKeyPath,
+	}
 }
 
 // DefaultSetupOptions returns the default file paths used by the setup command.

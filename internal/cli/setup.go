@@ -46,7 +46,7 @@ const (
 
 // runSetup prepares the host for webd by creating accounts, fixing permissions,
 // clearing file capabilities, provisioning config, and updating the systemd unit.
-func runSetup(opts app.SetupOptions) error {
+func runSetup(opts SetupOptions) error {
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("setup must be run as root because it modifies /etc/passwd, /etc/group, file ownership/permissions, Linux file capabilities (setcap), and systemd unit files")
 	}
@@ -118,7 +118,7 @@ func runSetup(opts app.SetupOptions) error {
 	}
 	fmt.Printf("ensured no file capabilities are set on %s (systemd AmbientCapabilities handles bind privileges)\n", opts.BinaryPath)
 
-	serviceChanged, err := ensureSystemdUnit(opts.ServicePath, app.ServiceUnitContent, opts.Force)
+	serviceChanged, err := ensureSystemdUnit(opts.ServicePath, ServiceUnitContent, opts.Force)
 	if err != nil {
 		return err
 	}
@@ -138,7 +138,7 @@ func runSetup(opts app.SetupOptions) error {
 
 func ensureEtcConfig(webdGroup int) error {
 	const etcDir = "/etc/webd"
-	const configPath = app.DefaultConfigPath
+	const configPath = DefaultConfigPath
 
 	if err := os.MkdirAll(etcDir, 0o750); err != nil {
 		return fmt.Errorf("create %s: %w", etcDir, err)

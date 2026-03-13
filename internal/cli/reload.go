@@ -20,7 +20,6 @@ import (
 	"syscall"
 	"time"
 
-	"webd/internal/app"
 	"webd/internal/schema"
 	"webd/internal/server"
 	"webd/internal/syslogx"
@@ -44,15 +43,15 @@ type Options struct {
 // DefaultOptions returns defaults for the reload helper workflow.
 func DefaultOptions() Options {
 	return Options{
-		HTTPAddr:      app.DefaultHTTPAddr,
-		HTTPSAddr:     app.DefaultHTTPSAddr,
-		RunUser:       app.DefaultRunUser,
-		ConfigSource:  app.DefaultConfigPath,
-		ConfigDest:    app.DefaultRuntimeConfigPath,
-		TLSCertSource: app.DefaultTLSSourceCertPath,
-		TLSKeySource:  app.DefaultTLSSourceKeyPath,
-		TLSCertDest:   app.DefaultRuntimeTLSCertPath,
-		TLSKeyDest:    app.DefaultRuntimeTLSKeyPath,
+		HTTPAddr:      DefaultHTTPAddr,
+		HTTPSAddr:     DefaultHTTPSAddr,
+		RunUser:       DefaultRunUser,
+		ConfigSource:  DefaultConfigPath,
+		ConfigDest:    DefaultRuntimeConfigPath,
+		TLSCertSource: DefaultTLSSourceCertPath,
+		TLSKeySource:  DefaultTLSSourceKeyPath,
+		TLSCertDest:   DefaultRuntimeTLSCertPath,
+		TLSKeyDest:    DefaultRuntimeTLSKeyPath,
 		PrepareOnly:   false,
 	}
 }
@@ -430,7 +429,7 @@ func stageTrustedCA(trustedCA *TrustedCA, upstream server.Upstream, uid, gid int
 	if !ok {
 		entry = &stagedTrustedCA{
 			sourcePath: sourcePath,
-			destPath:   filepath.Join(app.DefaultRuntimeTrustedCADir, "ca-"+name+".crt"),
+			destPath:   filepath.Join(DefaultRuntimeTrustedCADir, "ca-"+name+".crt"),
 			indexBySum: make(map[[32]byte]int),
 			pemBlocks:  make([][]byte, 0, len(caCerts)),
 		}
@@ -454,14 +453,14 @@ func stageTrustedCA(trustedCA *TrustedCA, upstream server.Upstream, uid, gid int
 }
 
 func ensureRuntimeTrustedCADir(uid, gid int) error {
-	if err := os.MkdirAll(app.DefaultRuntimeTrustedCADir, 0o750); err != nil {
-		return fmt.Errorf("create trusted_ca runtime directory %s: %w", app.DefaultRuntimeTrustedCADir, err)
+	if err := os.MkdirAll(DefaultRuntimeTrustedCADir, 0o750); err != nil {
+		return fmt.Errorf("create trusted_ca runtime directory %s: %w", DefaultRuntimeTrustedCADir, err)
 	}
-	if err := os.Chown(app.DefaultRuntimeTrustedCADir, uid, gid); err != nil {
-		return fmt.Errorf("chown trusted_ca runtime directory %s: %w", app.DefaultRuntimeTrustedCADir, err)
+	if err := os.Chown(DefaultRuntimeTrustedCADir, uid, gid); err != nil {
+		return fmt.Errorf("chown trusted_ca runtime directory %s: %w", DefaultRuntimeTrustedCADir, err)
 	}
-	if err := os.Chmod(app.DefaultRuntimeTrustedCADir, 0o750); err != nil {
-		return fmt.Errorf("chmod trusted_ca runtime directory %s: %w", app.DefaultRuntimeTrustedCADir, err)
+	if err := os.Chmod(DefaultRuntimeTrustedCADir, 0o750); err != nil {
+		return fmt.Errorf("chmod trusted_ca runtime directory %s: %w", DefaultRuntimeTrustedCADir, err)
 	}
 	return nil
 }
