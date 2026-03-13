@@ -48,9 +48,15 @@ RuntimeDirectoryMode=0750
 RootDirectory=/run/webd
 RootDirectoryStartOnly=true
 WorkingDirectory=/
+PrivateDevices=true
+ProtectProc=invisible
+ProcSubset=pid
 BindReadOnlyPaths=/opt/webd/current/libexec/webd
 BindReadOnlyPaths=/opt/webd/current/sbin/webctl
 BindReadOnlyPaths=/dev/log
+BindReadOnlyPaths=/run/systemd/journal/dev-log:/dev/log
+TemporaryFileSystem=/tmp
+TemporaryFileSystem=/run
 # Run reload helpers with full privileges outside service sandbox.
 ExecStartPre=+/opt/webd/current/sbin/webctl reload --prepare-only
 ExecStart=/opt/webd/current/libexec/webd
