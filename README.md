@@ -89,7 +89,10 @@ Project layout:
 
 Runtime behavior highlights:
 
-- Access logs written to `/var/log/httpsd/access.log` with 1 MiB rotation.
+- Logging is sent to journal via syslog with separate categories:
+  - `httpsd-error` for fatal/runtime errors
+  - `httpsd-ops` for operational events (startup/load/reload/signal)
+  - `httpsd-access` for per-request access entries
 - TLS cert/key and routes are reloaded in-process on `SIGHUP`.
 - `httpsdctl reload` resolves upstream hostnames and writes runtime config with IPv4 upstream targets.
 - `httpsd` loads only `/run/httpsd/config.json` and does not perform DNS lookups for upstream routing.

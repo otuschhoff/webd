@@ -25,7 +25,6 @@ func ExecuteControl() error {
 	rootCmd.PersistentFlags().StringVar(&runOpts.HTTPSAddr, "https-addr", runOpts.HTTPSAddr, "HTTPS listen address")
 	rootCmd.PersistentFlags().StringVar(&runOpts.TLSCertPath, "tls-cert", runOpts.TLSCertPath, "TLS certificate file")
 	rootCmd.PersistentFlags().StringVar(&runOpts.TLSKeyPath, "tls-key", runOpts.TLSKeyPath, "TLS private key file")
-	rootCmd.PersistentFlags().StringVar(&runOpts.AccessLogPath, "access-log", runOpts.AccessLogPath, "Access log path")
 	rootCmd.PersistentFlags().StringVar(&runOpts.RunUser, "run-user", runOpts.RunUser, "Expected runtime user for the server process")
 	reloadCmd := &cobra.Command{
 		Use:   "reload",

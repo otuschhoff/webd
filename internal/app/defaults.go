@@ -9,13 +9,11 @@ package app
 // DefaultRuntimeTLSKeyPath is the staged runtime TLS private key path.
 // DefaultTLSCertPath is the default TLS certificate path used by the running server.
 // DefaultTLSKeyPath is the default TLS private key path used by the running server.
-// DefaultAccessLog is the default access log file path.
 // DefaultRunUser is the default non-root runtime account for the daemon.
 // DefaultHTTPAddr is the default HTTP listen address.
 // DefaultHTTPSAddr is the default HTTPS listen address.
 // DefaultBinaryPath is the default installed binary path used by setup and systemd.
 // DefaultServicePath is the default systemd unit file path.
-// AccessLogRotateSize is the log size threshold that triggers access log rotation.
 const (
 	DefaultConfigPath         = "/etc/httpsd/config.yaml"
 	DefaultTLSSourceCertPath  = "/etc/pki/tls/certs/self.crt"
@@ -26,13 +24,11 @@ const (
 	DefaultRuntimeTLSKeyPath  = "/run/httpsd/tls.key"
 	DefaultTLSCertPath        = DefaultRuntimeTLSCertPath
 	DefaultTLSKeyPath         = DefaultRuntimeTLSKeyPath
-	DefaultAccessLog          = "/var/log/httpsd/access.log"
 	DefaultRunUser            = "httpsd"
 	DefaultHTTPAddr           = ":80"
 	DefaultHTTPSAddr          = ":443"
 	DefaultBinaryPath         = "/opt/httpsd/current/sbin/httpsd"
 	DefaultServicePath        = "/etc/systemd/system/httpsd.service"
-	AccessLogRotateSize       = int64(1 * 1024 * 1024)
 )
 
 // ServiceUnitContent is the desired systemd unit file content written by setup.
@@ -82,8 +78,6 @@ type RunOptions struct {
 	TLSCertPath string
 	// TLSKeyPath points to the private key PEM file.
 	TLSKeyPath string
-	// AccessLogPath points to the access log written by the daemon.
-	AccessLogPath string
 	// RunUser is the expected account name for the running server process.
 	RunUser string
 	// Force disables the runtime user enforcement check.
@@ -107,14 +101,13 @@ type SetupOptions struct {
 // DefaultRunOptions returns the runtime defaults used by the root and run commands.
 func DefaultRunOptions() RunOptions {
 	return RunOptions{
-		ConfigPath:    DefaultConfigPath,
-		HTTPAddr:      DefaultHTTPAddr,
-		HTTPSAddr:     DefaultHTTPSAddr,
-		TLSCertPath:   DefaultTLSCertPath,
-		TLSKeyPath:    DefaultTLSKeyPath,
-		AccessLogPath: DefaultAccessLog,
-		RunUser:       DefaultRunUser,
-		Force:         false,
+		ConfigPath:  DefaultConfigPath,
+		HTTPAddr:    DefaultHTTPAddr,
+		HTTPSAddr:   DefaultHTTPSAddr,
+		TLSCertPath: DefaultTLSCertPath,
+		TLSKeyPath:  DefaultTLSKeyPath,
+		RunUser:     DefaultRunUser,
+		Force:       false,
 	}
 }
 

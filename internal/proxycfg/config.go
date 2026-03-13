@@ -1,11 +1,9 @@
 package proxycfg
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -25,7 +23,7 @@ type Config struct {
 	Routes []Route `yaml:"routes" json:"routes"`
 }
 
-// Load reads, parses, and validates a YAML or JSON configuration file.
+// Load reads, parses, and validates a YAML configuration file.
 func Load(path string) (*Config, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -33,16 +31,8 @@ func Load(path string) (*Config, error) {
 	}
 
 	var cfg Config
-	ext := strings.ToLower(filepath.Ext(path))
-	switch ext {
-	case ".json":
-		if err := json.Unmarshal(b, &cfg); err != nil {
-			return nil, fmt.Errorf("parse config %s as json: %w", path, err)
-		}
-	default:
-		if err := yaml.Unmarshal(b, &cfg); err != nil {
-			return nil, fmt.Errorf("parse config %s as yaml: %w", path, err)
-		}
+	if err := yaml.Unmarshal(b, &cfg); err != nil {
+		return nil, fmt.Errorf("parse config %s as yaml: %w", path, err)
 	}
 
 	if err := Validate(&cfg); err != nil {

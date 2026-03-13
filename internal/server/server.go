@@ -19,7 +19,8 @@ import (
 	"time"
 
 	"httpsd/internal/app"
-	"httpsd/internal/proxycfg"
+	"httpsd/internal/runtimecfg"
+	"httpsd/internal/syslogx"
 )
 
 type routeProxy struct {
@@ -49,37 +50,40 @@ func (p *byteSlicePool) Put(b []byte) {
 
 // Run starts the HTTP and HTTPS reverse proxy servers and handles SIGHUP reloads.
 func Run(opts app.RunOptions) error {
-	log.Printf("startup begin pid=%d uid=%d euid=%d", os.Getpid(), os.Getuid(), os.Geteuid())
-	log.Printf("startup paths config=%q tls_cert=%q tls_key=%q access_log=%q", opts.ConfigPath, opts.TLSCertPath, opts.TLSKeyPath, opts.AccessLogPath)
-
-	cfg, err := proxycfg.Load(opts.ConfigPath)
+	logs, err := syslogx.New("httpsd", true)
 	if err != nil {
+		return fmt.Errorf("setup syslog loggers: %w", err)
+	}
+	defer func() {
+		_ = logs.Close()
+	}()
+
+	opsLog := logs.Ops
+	errLog := logs.Error
+	accessLog := logs.Access
+
+	opsLog.Printf("startup begin pid=%d uid=%d euid=%d", os.Getpid(), os.Getuid(), os.Geteuid())
+	opsLog.Printf("startup paths config=%q tls_cert=%q tls_key=%q", opts.ConfigPath, opts.TLSCertPath, opts.TLSKeyPath)
+
+	cfg, err := runtimecfg.LoadJSON(opts.ConfigPath)
+	if err != nil {
+		errLog.Printf("config load failed path=%q err=%v", opts.ConfigPath, err)
 		return fmt.Errorf("config error: %w", err)
 	}
 
-	routes, err := buildRouteProxies(cfg)
+	routes, err := buildRouteProxies(cfg, errLog)
 	if err != nil {
+		errLog.Printf("route config build failed err=%v", err)
 		return fmt.Errorf("route config error: %w", err)
 	}
 	for i, route := range cfg.Routes {
-		log.Printf("route configured index=%d path_prefix=%q upstream=%q", i, strings.TrimSpace(route.PathPrefix), strings.TrimSpace(route.Upstream))
+		opsLog.Printf("route configured index=%d path_prefix=%q upstream=%q", i, strings.TrimSpace(route.PathPrefix), strings.TrimSpace(route.Upstream))
 	}
 
 	var activeRoutes atomic.Value
 	activeRoutes.Store(routes)
 	defer closeRouteProxies(activeRoutes.Load().([]routeProxy))
 
-	rw, err := newRotatingWriter(opts.AccessLogPath, app.AccessLogRotateSize)
-	if err != nil {
-		return fmt.Errorf("access log setup error: %w", err)
-	}
-	defer func() {
-		if cerr := rw.Close(); cerr != nil {
-			log.Printf("close access log error: %v", cerr)
-		}
-	}()
-
-	accessLogger := log.New(rw, "", 0)
 	router := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		routesNow := activeRoutes.Load().([]routeProxy)
 		for _, route := range routesNow {
@@ -90,7 +94,7 @@ func Run(opts app.RunOptions) error {
 		}
 		http.NotFound(w, r)
 	})
-	handler := accessLogMiddleware(router, accessLogger)
+	handler := accessLogMiddleware(router, accessLog)
 
 	httpSrv := &http.Server{Addr: opts.HTTPAddr, Handler: handler}
 
@@ -108,55 +112,63 @@ func Run(opts app.RunOptions) error {
 		},
 	}
 
-	log.Printf("httpsd version=%s", app.VersionString())
-	log.Printf("httpsd starting http=%s https=%s config=%s access_log=%s routes=%d", opts.HTTPAddr, opts.HTTPSAddr, opts.ConfigPath, opts.AccessLogPath, len(routes))
-	log.Printf("reload enabled: send SIGHUP to reload TLS cert/key and proxy config")
+	opsLog.Printf("httpsd version=%s", app.VersionString())
+	opsLog.Printf("httpsd starting http=%s https=%s config=%s routes=%d", opts.HTTPAddr, opts.HTTPSAddr, opts.ConfigPath, len(routes))
+	opsLog.Printf("reload enabled: send SIGHUP to reload TLS cert/key and proxy config")
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGHUP)
 	defer signal.Stop(sigCh)
 	go func() {
 		for range sigCh {
-			cfgNow, cfgErr := proxycfg.Load(opts.ConfigPath)
+			cfgNow, cfgErr := runtimecfg.LoadJSON(opts.ConfigPath)
 			if cfgErr != nil {
-				log.Printf("config reload failed: %v", cfgErr)
+				errLog.Printf("config reload failed: %v", cfgErr)
 			} else {
-				reloadedRoutes, routesErr := buildRouteProxies(cfgNow)
+				reloadedRoutes, routesErr := buildRouteProxies(cfgNow, errLog)
 				if routesErr != nil {
-					log.Printf("route reload failed: %v", routesErr)
+					errLog.Printf("route reload failed: %v", routesErr)
 				} else {
 					oldRoutes := activeRoutes.Load().([]routeProxy)
 					activeRoutes.Store(reloadedRoutes)
 					closeRouteProxies(oldRoutes)
-					log.Printf("proxy routes reloaded successfully: routes=%d", len(reloadedRoutes))
+					opsLog.Printf("proxy routes reloaded successfully: routes=%d", len(reloadedRoutes))
 				}
 			}
 
 			if reloadErr := certs.Reload(); reloadErr != nil {
-				log.Printf("tls reload failed: %v", reloadErr)
+				errLog.Printf("tls reload failed: %v", reloadErr)
 				continue
 			}
-			log.Printf("tls cert/key reloaded successfully")
+			opsLog.Printf("tls cert/key reloaded successfully")
 		}
 	}()
 
 	errCh := make(chan error, 2)
 	go func() {
-		log.Printf("listening HTTP on %s", opts.HTTPAddr)
+		opsLog.Printf("listening HTTP on %s", opts.HTTPAddr)
 		err := httpSrv.ListenAndServe()
-		log.Printf("http server stopped addr=%s err=%v", opts.HTTPAddr, err)
+		if err != nil {
+			errLog.Printf("http server stopped addr=%s err=%v", opts.HTTPAddr, err)
+		} else {
+			opsLog.Printf("http server stopped addr=%s", opts.HTTPAddr)
+		}
 		errCh <- err
 	}()
 	go func() {
-		log.Printf("listening HTTPS on %s", opts.HTTPSAddr)
+		opsLog.Printf("listening HTTPS on %s", opts.HTTPSAddr)
 		tlsListener, listenErr := tls.Listen("tcp", opts.HTTPSAddr, httpsSrv.TLSConfig)
 		if listenErr != nil {
-			log.Printf("https listener setup failed addr=%s cert=%q key=%q err=%v", opts.HTTPSAddr, opts.TLSCertPath, opts.TLSKeyPath, listenErr)
+			errLog.Printf("https listener setup failed addr=%s cert=%q key=%q err=%v", opts.HTTPSAddr, opts.TLSCertPath, opts.TLSKeyPath, listenErr)
 			errCh <- listenErr
 			return
 		}
 		err := httpsSrv.Serve(tlsListener)
-		log.Printf("https server stopped addr=%s err=%v", opts.HTTPSAddr, err)
+		if err != nil {
+			errLog.Printf("https server stopped addr=%s err=%v", opts.HTTPSAddr, err)
+		} else {
+			opsLog.Printf("https server stopped addr=%s", opts.HTTPSAddr)
+		}
 		errCh <- err
 	}()
 
@@ -174,7 +186,7 @@ func closeRouteProxies(routes []routeProxy) {
 	}
 }
 
-func buildRouteProxies(cfg *proxycfg.Config) ([]routeProxy, error) {
+func buildRouteProxies(cfg *runtimecfg.Config, errLog *log.Logger) ([]routeProxy, error) {
 	routes := make([]routeProxy, 0, len(cfg.Routes))
 
 	for _, r := range cfg.Routes {
@@ -204,7 +216,7 @@ func buildRouteProxies(cfg *proxycfg.Config) ([]routeProxy, error) {
 		proxy.Transport = newStaticUpstreamTransport(u)
 		proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, proxyErr error) {
 			http.Error(w, "Bad Gateway", http.StatusBadGateway)
-			log.Printf("proxy_error upstream=%q path=%q err=%v", upstream, req.URL.Path, proxyErr)
+			errLog.Printf("proxy_error upstream=%q path=%q err=%v", upstream, req.URL.Path, proxyErr)
 		}
 
 		routes = append(routes, routeProxy{prefix: prefix, proxy: proxy})

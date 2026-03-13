@@ -105,17 +105,6 @@ func Run(opts app.SetupOptions) error {
 		return err
 	}
 
-	if err := os.MkdirAll("/var/log/httpsd", 0o750); err != nil {
-		return fmt.Errorf("create /var/log/httpsd: %w", err)
-	}
-	if err := os.Chown("/var/log/httpsd", httpsdUID, httpsdGroup); err != nil {
-		return fmt.Errorf("chown /var/log/httpsd: %w", err)
-	}
-	if err := os.Chmod("/var/log/httpsd", 0o750); err != nil {
-		return fmt.Errorf("chmod /var/log/httpsd: %w", err)
-	}
-	fmt.Println("ensured /var/log/httpsd ownership=httpsd:httpsd perms=750")
-
 	installedBinaryPath, err := ensureVersionedInstall()
 	if err != nil {
 		return err
