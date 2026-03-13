@@ -221,7 +221,7 @@ func ensureVersionedInstall() (string, error) {
 	}
 
 	versionDir := filepath.Join(installRoot, versionDirName)
-	versionBinDir := filepath.Join(versionDir, "sbin")
+	versionBinDir := filepath.Join(versionDir, "libexec")
 	versionBinaryPath := filepath.Join(versionBinDir, "httpsd")
 	currentLink := filepath.Join(installRoot, "current")
 

@@ -29,7 +29,7 @@ const (
 	DefaultRunUser             = "httpsd"
 	DefaultHTTPAddr            = ":80"
 	DefaultHTTPSAddr           = ":443"
-	DefaultBinaryPath          = "/opt/httpsd/current/sbin/httpsd"
+	DefaultBinaryPath          = "/opt/httpsd/current/libexec/httpsd"
 	DefaultServicePath         = "/etc/systemd/system/httpsd.service"
 )
 
@@ -49,9 +49,14 @@ StandardOutput=journal
 StandardError=journal
 RuntimeDirectory=httpsd
 RuntimeDirectoryMode=0750
-WorkingDirectory=/run/httpsd
+RootDirectory=/run/httpsd
+RootDirectoryStartOnly=true
+WorkingDirectory=/
+BindReadOnlyPaths=/opt/httpsd/current/libexec/httpsd
+BindReadOnlyPaths=/opt/httpsd/current/sbin/httpsdctl
+BindPaths=/dev/log
 ExecStartPre=/opt/httpsd/current/sbin/httpsdctl reload --prepare-only
-ExecStart=/opt/httpsd/current/sbin/httpsd
+ExecStart=/opt/httpsd/current/libexec/httpsd
 ExecReload=/opt/httpsd/current/sbin/httpsdctl reload
 Restart=on-failure
 
@@ -61,7 +66,6 @@ AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 # Hardening: Prevent the app from gaining more privileges
 NoNewPrivileges=true
-PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
 

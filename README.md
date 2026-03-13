@@ -136,7 +136,7 @@ Control-plane reload (`httpsdctl reload` and `--prepare-only`):
 
 1. `cmd/httpsdctl/main.go:main` creates command loggers with `syslogx.NewForCommand` and calls `cli.ExecuteControl`.
 2. `internal/cli/root.go:ExecuteControl` builds the Cobra root command, wires the `reload` subcommand, copies persistent flag values into `reload.Options`, and calls `internal/cli/reload.go:Run`.
-3. `Run` requires root, resolves the runtime user with `lookupRunUser`, validates the runtime directory layout with `validateRunTLSDirs`, creates/chowns `/run/httpsd` with `ensureRuntimeTLSDir`, and bind-mounts `/dev/log` into the runtime tree with `ensureRuntimeDevLogBindMount`.
+3. `Run` requires root, resolves the runtime user with `lookupRunUser`, validates the runtime directory layout with `validateRunTLSDirs`, and creates/chowns `/run/httpsd` with `ensureRuntimeTLSDir`.
 4. If `PrepareOnly` is false, `Run` locates live daemon PIDs with `findHTTPSDPIDs` and verifies that the configured HTTP/HTTPS listen ports are owned by those processes with `ensurePortsBoundByHTTPSD`.
 5. `Run` stages all runtime artifacts through `stageTLSArtifacts`.
 6. `stageTLSArtifacts` first calls `stageConfigArtifact`, which loads the YAML source config with `internal/cli/config.go:Load`, converts it to runtime JSON with `buildRuntimeConfig`, and writes `/run/httpsd/config.json` atomically.
@@ -164,7 +164,7 @@ Control-plane host setup (`httpsdctl setup`):
 3. `internal/cli/setup.go:runSetup` requires root, then creates or validates the `httpsd` and `tlskey` groups with `ensureGroupExists` and the `httpsd` user with `ensureUserExists`.
 4. `runSetup` ensures the `httpsd` user is a member of `tlskey` via `ensureUserInGroup`, then verifies the resulting account layout with `validateServiceIdentity` and `validateAccountDatabases`.
 5. `runSetup` checks that the configured TLS key and certificate files exist, then provisions `/etc/httpsd` and the default config file via `ensureEtcConfig`.
-6. `runSetup` stages the current binary into the versioned install tree with `ensureVersionedInstall`; that helper derives the versioned path from `app.Version` and `app.BuildTime` using `buildVersionDirName`, copies the executable into `/opt/httpsd/<version>/sbin/httpsd`, and refreshes `/opt/httpsd/current` to point at the newest installed version.
+6. `runSetup` stages the current binary into the versioned install tree with `ensureVersionedInstall`; that helper derives the versioned path from `app.Version` and `app.BuildTime` using `buildVersionDirName`, copies the executable into `/opt/httpsd/<version>/libexec/httpsd`, and refreshes `/opt/httpsd/current` to point at the newest installed version.
 7. `runSetup` removes any file capabilities from the configured binary path with `ensureNoFileCapabilities`; low-port bind permission is then supplied only by systemd `AmbientCapabilities`.
 8. `runSetup` writes or validates the systemd unit with `ensureSystemdUnit`; if the unit changed, it runs `daemonReload` to execute `systemctl daemon-reload`.
 9. `runSetup` finishes by printing `setup complete` after the host account, config, binary install, capability, and systemd state all match the expected layout.
