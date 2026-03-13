@@ -7,6 +7,7 @@ package app
 // DefaultRuntimeConfigPath is the staged runtime JSON config path.
 // DefaultRuntimeTLSCertPath is the staged runtime TLS certificate path.
 // DefaultRuntimeTLSKeyPath is the staged runtime TLS private key path.
+// DefaultRuntimeTrustedCADir is the runtime directory used for staged upstream CA bundles.
 // DefaultTLSCertPath is the default TLS certificate path used by the running server.
 // DefaultTLSKeyPath is the default TLS private key path used by the running server.
 // DefaultRunUser is the default non-root runtime account for the daemon.
@@ -15,20 +16,21 @@ package app
 // DefaultBinaryPath is the default installed binary path used by setup and systemd.
 // DefaultServicePath is the default systemd unit file path.
 const (
-	DefaultConfigPath         = "/etc/httpsd/config.yaml"
-	DefaultTLSSourceCertPath  = "/etc/pki/tls/certs/self.crt"
-	DefaultTLSSourceKeyPath   = "/etc/pki/tls/private/self.key"
-	DefaultRuntimeTLSDir      = "/run/httpsd"
-	DefaultRuntimeConfigPath  = "/run/httpsd/config.json"
-	DefaultRuntimeTLSCertPath = "/run/httpsd/tls.crt"
-	DefaultRuntimeTLSKeyPath  = "/run/httpsd/tls.key"
-	DefaultTLSCertPath        = DefaultRuntimeTLSCertPath
-	DefaultTLSKeyPath         = DefaultRuntimeTLSKeyPath
-	DefaultRunUser            = "httpsd"
-	DefaultHTTPAddr           = ":80"
-	DefaultHTTPSAddr          = ":443"
-	DefaultBinaryPath         = "/opt/httpsd/current/sbin/httpsd"
-	DefaultServicePath        = "/etc/systemd/system/httpsd.service"
+	DefaultConfigPath          = "/etc/httpsd/config.yaml"
+	DefaultTLSSourceCertPath   = "/etc/pki/tls/certs/self.crt"
+	DefaultTLSSourceKeyPath    = "/etc/pki/tls/private/self.key"
+	DefaultRuntimeTLSDir       = "/run/httpsd"
+	DefaultRuntimeConfigPath   = "/run/httpsd/config.json"
+	DefaultRuntimeTLSCertPath  = "/run/httpsd/tls.crt"
+	DefaultRuntimeTLSKeyPath   = "/run/httpsd/tls.key"
+	DefaultRuntimeTrustedCADir = "/run/httpd"
+	DefaultTLSCertPath         = DefaultRuntimeTLSCertPath
+	DefaultTLSKeyPath          = DefaultRuntimeTLSKeyPath
+	DefaultRunUser             = "httpsd"
+	DefaultHTTPAddr            = ":80"
+	DefaultHTTPSAddr           = ":443"
+	DefaultBinaryPath          = "/opt/httpsd/current/sbin/httpsd"
+	DefaultServicePath         = "/etc/systemd/system/httpsd.service"
 )
 
 // ServiceUnitContent is the desired systemd unit file content written by setup.

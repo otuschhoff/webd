@@ -149,7 +149,16 @@ func checkUpstreams(cfg *Config) checkResult {
 			result.okLines = append(result.okLines, fmt.Sprintf("upstream %s: TCP handshake OK", raw))
 		case "https":
 			dialer := &net.Dialer{Timeout: 4 * time.Second}
-			conn, err := tls.DialWithDialer(dialer, "tcp", hostPort, &tls.Config{InsecureSkipVerify: true})
+			tlsConfig := &tls.Config{InsecureSkipVerify: true}
+			if route.TrustedCA != nil {
+				pool, poolErr := loadTrustedCAPool(route.TrustedCA.CertPath)
+				if poolErr != nil {
+					result.failLines = append(result.failLines, fmt.Sprintf("%s trusted_ca load failed: %v", raw, poolErr))
+					continue
+				}
+				tlsConfig = &tls.Config{ServerName: u.Hostname(), RootCAs: pool}
+			}
+			conn, err := tls.DialWithDialer(dialer, "tcp", hostPort, tlsConfig)
 			if err != nil {
 				result.failLines = append(result.failLines, fmt.Sprintf("%s TLS handshake failed: %v", raw, err))
 				continue
@@ -162,6 +171,22 @@ func checkUpstreams(cfg *Config) checkResult {
 	}
 
 	return result
+}
+
+func loadTrustedCAPool(certPath string) (*x509.CertPool, error) {
+	pemBytes, err := os.ReadFile(certPath)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", certPath, err)
+	}
+
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	if ok := pool.AppendCertsFromPEM(pemBytes); !ok {
+		return nil, fmt.Errorf("no PEM certificates found in %s", certPath)
+	}
+	return pool, nil
 }
 
 func checkTLSMaterials(certPath, keyPath string) checkResult {

@@ -57,6 +57,11 @@ Example (`config.example.yaml`):
 routes:
   - path_prefix: /api/
     upstream: http://127.0.0.1:8080/api/v1/
+  - path_prefix: /internal/
+    upstream: https://api.internal.example.com/v1/
+    trusted_ca:
+      name: internal-api
+      cert_path: /etc/pki/ca-trust/source/anchors/internal-api.crt
   - path_prefix: /
     upstream: http://127.0.0.1:3000
 ```
@@ -66,6 +71,9 @@ Rules:
 - `routes` must contain at least one entry.
 - `path_prefix` must begin with `/` (empty is treated as `/`).
 - `upstream` must be a valid absolute URL.
+- `trusted_ca` is optional and supported only for `https` upstreams.
+- `trusted_ca.name` may contain only letters, digits, `.`, `_`, and `-`.
+- `trusted_ca.cert_path` must point to a PEM CA bundle that `httpsdctl reload` can read.
 - Longest `path_prefix` wins.
 
 TLS notes:
@@ -80,11 +88,8 @@ Project layout:
 
 - `cmd/httpsd/main.go`: data-plane daemon entrypoint.
 - `cmd/httpsdctl/main.go`: control-plane utility entrypoint.
-- `internal/cli`: Cobra command wiring.
-- `internal/server`: proxy runtime, request logging, TLS/config SIGHUP reload.
-- `internal/proxycfg`: config model, load/validate, pretty/color output.
-- `internal/reloadcmd`: process lookup + `SIGHUP` signaling.
-- `internal/setup`: user/group/permissions/capabilities/systemd setup.
+- `internal/cli`: control-plane commands, config parsing, reload staging, setup.
+- `internal/server`: runtime config model, proxy runtime, request logging, TLS/config SIGHUP reload.
 - `internal/app`: defaults and shared option structs.
 
 Runtime behavior highlights:
@@ -94,12 +99,14 @@ Runtime behavior highlights:
   - `httpsd-ops` for operational events (startup/load/reload/signal)
   - `httpsd-access` for per-request access entries
 - TLS cert/key and routes are reloaded in-process on `SIGHUP`.
-- `httpsdctl reload` resolves upstream hostnames and writes runtime config with IPv4 upstream targets.
-- `httpsd` loads only `/run/httpsd/config.json` and does not perform DNS lookups for upstream routing.
+- `httpsdctl reload` resolves upstream hostnames and writes runtime config with decomposed upstream targets including `protocol`, `hostname`, `port`, `path`, and `ipv4_addresses`.
+- `httpsdctl reload` stages per-upstream trusted CA bundles at `/run/httpd/ca-<name>.crt` when configured.
+- `httpsd` loads only `/run/httpsd/config.json`, dials the staged IPv4 addresses directly, and does not perform DNS lookups for upstream routing.
+- `httpsd` uses a staged trusted CA bundle to verify an HTTPS upstream when that upstream declares `trusted_ca`.
 - Upstream requests include standard proxy headers such as `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port`, `X-Real-IP`, and `Forwarded`.
 - `httpsd` accepts no flags/subcommands; control operations are in `httpsdctl`.
 - `httpsd` requires effective UID in the 500-999 range.
-- `httpsd` fails fast if any required file is unreadable: `/etc/httpsd/config.yaml`, `/run/httpsd/tls.crt`, `/run/httpsd/tls.key`, `/etc/resolv.conf`.
+- `httpsd` fails fast if any required runtime file is unreadable.
 
 ## Build From Source (xc)
 

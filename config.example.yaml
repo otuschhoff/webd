@@ -5,6 +5,13 @@ routes:
   - path_prefix: /api/
     upstream: http://127.0.0.1:8080/api/v1/
 
+  # Example HTTPS upstream with a custom trusted CA bundle.
+  # - path_prefix: /internal/
+  #   upstream: https://api.internal.example.com/v1/
+  #   trusted_ca:
+  #     name: internal-api
+  #     cert_path: /etc/pki/ca-trust/source/anchors/internal-api.crt
+
   # Fallback for everything else.
   - path_prefix: /
     upstream: http://127.0.0.1:3000

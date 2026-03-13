@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"bytes"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"syscall"
 
 	"httpsd/internal/app"
+	"httpsd/internal/server"
 	"httpsd/internal/syslogx"
 )
 
@@ -329,17 +331,17 @@ func stageTLSArtifacts(opts Options, uid, gid int) error {
 }
 
 func stageConfigArtifact(opts Options, uid, gid int) error {
-	cfg, err := loadConfig(opts.ConfigSource)
+	cfg, err := Load(opts.ConfigSource)
 	if err != nil {
 		return fmt.Errorf("load config source %s: %w", opts.ConfigSource, err)
 	}
 
-	resolvedCfg, err := resolveConfigToIPv4(cfg)
+	runtimeCfg, err := buildRuntimeConfig(cfg, uid, gid)
 	if err != nil {
-		return fmt.Errorf("resolve upstreams to IPv4 for runtime config: %w", err)
+		return fmt.Errorf("build runtime config: %w", err)
 	}
 
-	jsonConfig, err := json.MarshalIndent(resolvedCfg, "", "  ")
+	jsonConfig, err := json.MarshalIndent(runtimeCfg, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal config json for %s: %w", opts.ConfigDest, err)
 	}
@@ -355,14 +357,15 @@ func stageConfigArtifact(opts Options, uid, gid int) error {
 	return nil
 }
 
-func resolveConfigToIPv4(cfg *proxyConfig) (*proxyConfig, error) {
-	resolved := &proxyConfig{Routes: make([]proxyRoute, 0, len(cfg.Routes))}
+func buildRuntimeConfig(cfg *Config, uid, gid int) (*server.Config, error) {
+	resolved := &server.Config{Routes: make([]server.Route, 0, len(cfg.Routes))}
+	stagedCAs := make(map[string]string)
 	for _, route := range cfg.Routes {
-		upstream, err := resolveUpstreamToIPv4(route.Upstream)
+		upstream, err := buildRuntimeUpstream(route, uid, gid, stagedCAs)
 		if err != nil {
 			return nil, fmt.Errorf("route path_prefix=%q upstream=%q: %w", route.PathPrefix, route.Upstream, err)
 		}
-		resolved.Routes = append(resolved.Routes, proxyRoute{
+		resolved.Routes = append(resolved.Routes, server.Route{
 			PathPrefix: route.PathPrefix,
 			Upstream:   upstream,
 		})
@@ -370,45 +373,67 @@ func resolveConfigToIPv4(cfg *proxyConfig) (*proxyConfig, error) {
 	return resolved, nil
 }
 
-func resolveUpstreamToIPv4(raw string) (string, error) {
-	u, err := url.Parse(raw)
+func buildRuntimeUpstream(route Route, uid, gid int, stagedCAs map[string]string) (server.Upstream, error) {
+	u, err := url.Parse(route.Upstream)
 	if err != nil || u.Scheme == "" || u.Host == "" {
-		return "", fmt.Errorf("invalid upstream URL")
+		return server.Upstream{}, fmt.Errorf("invalid upstream URL")
 	}
 
+	protocol := strings.ToLower(u.Scheme)
 	hostname := u.Hostname()
 	port := u.Port()
 	if port == "" {
-		switch strings.ToLower(u.Scheme) {
+		switch protocol {
 		case "http":
 			port = "80"
 		case "https":
 			port = "443"
 		default:
-			return "", fmt.Errorf("unsupported scheme %q", u.Scheme)
+			return server.Upstream{}, fmt.Errorf("unsupported scheme %q", u.Scheme)
 		}
 	}
 
-	resolvedIP, err := pickIPv4Address(hostname)
+	portNum, err := strconv.Atoi(port)
 	if err != nil {
-		return "", err
+		return server.Upstream{}, fmt.Errorf("invalid port %q: %w", port, err)
 	}
-	u.Host = net.JoinHostPort(resolvedIP, port)
-	return u.String(), nil
+
+	resolvedIPs, err := lookupIPv4Addresses(hostname)
+	if err != nil {
+		return server.Upstream{}, err
+	}
+
+	var trustedCA *server.TrustedCA
+	if route.TrustedCA != nil {
+		trustedCA, err = stageTrustedCA(route.TrustedCA, uid, gid, stagedCAs)
+		if err != nil {
+			return server.Upstream{}, err
+		}
+	}
+
+	return server.Upstream{
+		Protocol:      protocol,
+		Hostname:      hostname,
+		Port:          portNum,
+		Path:          u.Path,
+		RawQuery:      u.RawQuery,
+		IPv4Addresses: resolvedIPs,
+		TrustedCA:     trustedCA,
+	}, nil
 }
 
-func pickIPv4Address(hostname string) (string, error) {
+func lookupIPv4Addresses(hostname string) ([]string, error) {
 	if ip := net.ParseIP(hostname); ip != nil {
 		v4 := ip.To4()
 		if v4 == nil {
-			return "", fmt.Errorf("upstream host %q is not IPv4", hostname)
+			return nil, fmt.Errorf("upstream host %q is not IPv4", hostname)
 		}
-		return v4.String(), nil
+		return []string{v4.String()}, nil
 	}
 
 	ips, err := net.LookupIP(hostname)
 	if err != nil {
-		return "", fmt.Errorf("dns lookup failed: %w", err)
+		return nil, fmt.Errorf("dns lookup failed: %w", err)
 	}
 	v4s := make([]string, 0, len(ips))
 	seen := make(map[string]struct{}, len(ips))
@@ -425,10 +450,72 @@ func pickIPv4Address(hostname string) (string, error) {
 		v4s = append(v4s, s)
 	}
 	if len(v4s) == 0 {
-		return "", fmt.Errorf("dns lookup returned no IPv4 addresses")
+		return nil, fmt.Errorf("dns lookup returned no IPv4 addresses")
 	}
 	sort.Strings(v4s)
-	return v4s[0], nil
+	return v4s, nil
+}
+
+func stageTrustedCA(trustedCA *TrustedCA, uid, gid int, stagedCAs map[string]string) (*server.TrustedCA, error) {
+	if trustedCA == nil {
+		return nil, nil
+	}
+
+	sourcePath := strings.TrimSpace(trustedCA.CertPath)
+	name := strings.TrimSpace(trustedCA.Name)
+	if sourcePath == "" || name == "" {
+		return nil, fmt.Errorf("trusted_ca requires both name and cert_path")
+	}
+
+	if existing, ok := stagedCAs[name]; ok && existing != sourcePath {
+		return nil, fmt.Errorf("trusted_ca name %q is used with multiple cert_path values", name)
+	}
+
+	if err := ensureRuntimeTrustedCADir(uid, gid); err != nil {
+		return nil, err
+	}
+	if err := validateTrustedCAFile(sourcePath); err != nil {
+		return nil, err
+	}
+
+	destPath := filepath.Join(app.DefaultRuntimeTrustedCADir, "ca-"+name+".crt")
+	if _, ok := stagedCAs[name]; !ok {
+		if err := copyFileAtomic(sourcePath, destPath, 0o640); err != nil {
+			return nil, fmt.Errorf("stage trusted_ca %q: %w", name, err)
+		}
+		if err := os.Chown(destPath, uid, gid); err != nil {
+			return nil, fmt.Errorf("chown staged trusted_ca %s: %w", destPath, err)
+		}
+		stagedCAs[name] = sourcePath
+	}
+
+	return &server.TrustedCA{Name: name, File: destPath}, nil
+}
+
+func ensureRuntimeTrustedCADir(uid, gid int) error {
+	if err := os.MkdirAll(app.DefaultRuntimeTrustedCADir, 0o750); err != nil {
+		return fmt.Errorf("create trusted_ca runtime directory %s: %w", app.DefaultRuntimeTrustedCADir, err)
+	}
+	if err := os.Chown(app.DefaultRuntimeTrustedCADir, uid, gid); err != nil {
+		return fmt.Errorf("chown trusted_ca runtime directory %s: %w", app.DefaultRuntimeTrustedCADir, err)
+	}
+	if err := os.Chmod(app.DefaultRuntimeTrustedCADir, 0o750); err != nil {
+		return fmt.Errorf("chmod trusted_ca runtime directory %s: %w", app.DefaultRuntimeTrustedCADir, err)
+	}
+	return nil
+}
+
+func validateTrustedCAFile(certPath string) error {
+	pemBytes, err := os.ReadFile(certPath)
+	if err != nil {
+		return fmt.Errorf("read trusted_ca %s: %w", certPath, err)
+	}
+
+	pool := x509.NewCertPool()
+	if ok := pool.AppendCertsFromPEM(pemBytes); !ok {
+		return fmt.Errorf("trusted_ca file %s does not contain any PEM certificates", certPath)
+	}
+	return nil
 }
 
 func validateTLSBundleOrder(certPath string) error {

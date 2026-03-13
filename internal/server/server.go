@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log"
 	"net"
@@ -76,7 +78,7 @@ func Run(opts app.RunOptions) error {
 		return fmt.Errorf("route config error: %w", err)
 	}
 	for i, route := range cfg.Routes {
-		opsLog.Printf("route configured index=%d path_prefix=%q upstream=%q", i, strings.TrimSpace(route.PathPrefix), strings.TrimSpace(route.Upstream))
+		opsLog.Printf("route configured index=%d path_prefix=%q upstream=%s", i, strings.TrimSpace(route.PathPrefix), formatUpstream(route.Upstream))
 	}
 
 	var activeRoutes atomic.Value
@@ -194,25 +196,21 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			prefix = "/"
 		}
 
-		u, err := url.Parse(r.Upstream)
-		if err != nil || u.Scheme == "" || u.Host == "" {
-			return nil, fmt.Errorf("invalid upstream for prefix %q: %q", prefix, r.Upstream)
-		}
-		hostname := u.Hostname()
-		ip := net.ParseIP(hostname)
-		if ip == nil || ip.To4() == nil {
-			return nil, fmt.Errorf("upstream for prefix %q must use an IPv4 address in runtime config: %q", prefix, r.Upstream)
-		}
-		upstream := u.String()
+		targetURL := upstreamURL(r.Upstream)
+		upstream := targetURL.String()
 
-		proxy := httputil.NewSingleHostReverseProxy(u)
+		proxy := httputil.NewSingleHostReverseProxy(targetURL)
 		proxy.BufferPool = reverseProxyBufferPool
 		originalDirector := proxy.Director
 		proxy.Director = func(req *http.Request) {
 			originalDirector(req)
 			setForwardedHeaders(req)
 		}
-		proxy.Transport = newStaticUpstreamTransport(u)
+		transport, transportErr := newStaticUpstreamTransport(r.Upstream)
+		if transportErr != nil {
+			return nil, fmt.Errorf("configure transport for prefix %q: %w", prefix, transportErr)
+		}
+		proxy.Transport = transport
 		proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, proxyErr error) {
 			http.Error(w, "Bad Gateway", http.StatusBadGateway)
 			errLog.Printf("proxy_error upstream=%q path=%q err=%v", upstream, req.URL.Path, proxyErr)
@@ -228,19 +226,75 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 	return routes, nil
 }
 
-func newStaticUpstreamTransport(target *url.URL) http.RoundTripper {
+func newStaticUpstreamTransport(upstream Upstream) (http.RoundTripper, error) {
 	base := http.DefaultTransport.(*http.Transport).Clone()
-	if strings.EqualFold(target.Scheme, "https") {
+	addresses := append([]string(nil), upstream.IPv4Addresses...)
+	port := strconv.Itoa(upstream.Port)
+	dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
+	base.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		if len(addresses) == 0 {
+			return nil, fmt.Errorf("no upstream IPv4 addresses configured")
+		}
+		errs := make([]string, 0, len(addresses))
+		for _, rawIP := range addresses {
+			addr := net.JoinHostPort(rawIP, port)
+			conn, err := dialer.DialContext(ctx, network, addr)
+			if err == nil {
+				return conn, nil
+			}
+			errs = append(errs, fmt.Sprintf("%s: %v", rawIP, err))
+		}
+		return nil, fmt.Errorf("dial upstream %s:%s failed: %s", upstream.Hostname, port, strings.Join(errs, "; "))
+	}
+
+	if strings.EqualFold(upstream.Protocol, "https") {
 		if base.TLSClientConfig == nil {
 			base.TLSClientConfig = &tls.Config{}
 		} else {
 			base.TLSClientConfig = base.TLSClientConfig.Clone()
 		}
-		if serverName := target.Hostname(); serverName != "" {
-			base.TLSClientConfig.ServerName = serverName
+		if upstream.Hostname != "" {
+			base.TLSClientConfig.ServerName = upstream.Hostname
+		}
+		if upstream.TrustedCA != nil {
+			pool, err := loadTrustedCertPool(upstream.TrustedCA.File)
+			if err != nil {
+				return nil, fmt.Errorf("load trusted_ca %q from %s: %w", upstream.TrustedCA.Name, upstream.TrustedCA.File, err)
+			}
+			base.TLSClientConfig.RootCAs = pool
 		}
 	}
-	return base
+	return base, nil
+}
+
+func upstreamURL(upstream Upstream) *url.URL {
+	host := net.JoinHostPort(upstream.Hostname, strconv.Itoa(upstream.Port))
+	return &url.URL{
+		Scheme:   upstream.Protocol,
+		Host:     host,
+		Path:     upstream.Path,
+		RawQuery: upstream.RawQuery,
+	}
+}
+
+func formatUpstream(upstream Upstream) string {
+	return upstreamURL(upstream).String()
+}
+
+func loadTrustedCertPool(certPath string) (*x509.CertPool, error) {
+	pemBytes, err := os.ReadFile(certPath)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", certPath, err)
+	}
+
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	if ok := pool.AppendCertsFromPEM(pemBytes); !ok {
+		return nil, fmt.Errorf("no certificates found in PEM data")
+	}
+	return pool, nil
 }
 
 func setForwardedHeaders(req *http.Request) {

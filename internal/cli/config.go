@@ -10,12 +10,19 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type TrustedCA struct {
+	Name     string `yaml:"name" json:"name"`
+	CertPath string `yaml:"cert_path" json:"cert_path"`
+}
+
 // Route maps a URL path prefix to an upstream base URL.
 type Route struct {
 	// PathPrefix is matched against the incoming request path.
 	PathPrefix string `yaml:"path_prefix" json:"path_prefix"`
 	// Upstream is the absolute HTTP or HTTPS upstream base URL.
 	Upstream string `yaml:"upstream" json:"upstream"`
+	// TrustedCA identifies a PEM CA bundle that should verify this upstream TLS server.
+	TrustedCA *TrustedCA `yaml:"trusted_ca,omitempty" json:"trusted_ca,omitempty"`
 }
 
 // Config is the root YAML configuration for reverse-proxy routes.
@@ -60,8 +67,34 @@ func Validate(cfg *Config) error {
 		if err != nil || u.Scheme == "" || u.Host == "" {
 			return fmt.Errorf("invalid upstream for prefix %q: %q", prefix, r.Upstream)
 		}
+
+		if r.TrustedCA != nil {
+			caName := strings.TrimSpace(r.TrustedCA.Name)
+			if caName == "" {
+				return fmt.Errorf("trusted_ca.name is required for prefix %q", prefix)
+			}
+			if !isTrustedCAName(caName) {
+				return fmt.Errorf("trusted_ca.name must contain only letters, digits, dot, dash, or underscore for prefix %q: %q", prefix, caName)
+			}
+			if strings.TrimSpace(r.TrustedCA.CertPath) == "" {
+				return fmt.Errorf("trusted_ca.cert_path is required for prefix %q", prefix)
+			}
+			if !strings.EqualFold(u.Scheme, "https") {
+				return fmt.Errorf("trusted_ca is supported only for https upstreams for prefix %q", prefix)
+			}
+		}
 	}
 	return nil
+}
+
+func isTrustedCAName(name string) bool {
+	for _, ch := range name {
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '.' || ch == '-' || ch == '_' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // PrettyYAML renders the configuration back to normalized YAML.
