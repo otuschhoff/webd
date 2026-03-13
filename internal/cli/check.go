@@ -129,8 +129,10 @@ func checkUpstreams(cfg *Config) checkResult {
 		if u.Port() == "" {
 			switch strings.ToLower(u.Scheme) {
 			case "http":
+			case "ws":
 				hostPort = net.JoinHostPort(u.Hostname(), "80")
 			case "https":
+			case "wss":
 				hostPort = net.JoinHostPort(u.Hostname(), "443")
 			default:
 				result.failLines = append(result.failLines, fmt.Sprintf("%s unsupported scheme %q", raw, u.Scheme))
@@ -139,7 +141,7 @@ func checkUpstreams(cfg *Config) checkResult {
 		}
 
 		switch strings.ToLower(u.Scheme) {
-		case "http":
+		case "http", "ws":
 			conn, err := net.DialTimeout("tcp", hostPort, 3*time.Second)
 			if err != nil {
 				result.failLines = append(result.failLines, fmt.Sprintf("%s TCP handshake failed: %v", raw, err))
@@ -147,7 +149,7 @@ func checkUpstreams(cfg *Config) checkResult {
 			}
 			_ = conn.Close()
 			result.okLines = append(result.okLines, fmt.Sprintf("upstream %s: TCP handshake OK", raw))
-		case "https":
+		case "https", "wss":
 			dialer := &net.Dialer{Timeout: 4 * time.Second}
 			tlsConfig := &tls.Config{InsecureSkipVerify: true}
 			if route.TrustedCA != nil {

@@ -276,7 +276,7 @@ func newStaticUpstreamTransport(upstream Upstream) (http.RoundTripper, error) {
 		return nil, fmt.Errorf("dial upstream %s:%s failed: %s", upstream.Hostname, port, strings.Join(errs, "; "))
 	}
 
-	if strings.EqualFold(upstream.Protocol, "https") {
+	if usesTLSUpstream(upstream.Protocol) {
 		if base.TLSClientConfig == nil {
 			base.TLSClientConfig = &tls.Config{}
 		} else {
@@ -299,7 +299,7 @@ func newStaticUpstreamTransport(upstream Upstream) (http.RoundTripper, error) {
 func upstreamURL(upstream Upstream) *url.URL {
 	host := net.JoinHostPort(upstream.Hostname, strconv.Itoa(upstream.Port))
 	return &url.URL{
-		Scheme:   upstream.Protocol,
+		Scheme:   proxyScheme(upstream.Protocol),
 		Host:     host,
 		Path:     upstream.Path,
 		RawQuery: upstream.RawQuery,
@@ -307,7 +307,33 @@ func upstreamURL(upstream Upstream) *url.URL {
 }
 
 func formatUpstream(upstream Upstream) string {
-	return upstreamURL(upstream).String()
+	host := net.JoinHostPort(upstream.Hostname, strconv.Itoa(upstream.Port))
+	return (&url.URL{
+		Scheme:   upstream.Protocol,
+		Host:     host,
+		Path:     upstream.Path,
+		RawQuery: upstream.RawQuery,
+	}).String()
+}
+
+func proxyScheme(protocol string) string {
+	switch strings.ToLower(strings.TrimSpace(protocol)) {
+	case "ws":
+		return "http"
+	case "wss":
+		return "https"
+	default:
+		return protocol
+	}
+}
+
+func usesTLSUpstream(protocol string) bool {
+	switch strings.ToLower(strings.TrimSpace(protocol)) {
+	case "https", "wss":
+		return true
+	default:
+		return false
+	}
 }
 
 func loadTrustedCertPool(certPath string) (*x509.CertPool, error) {

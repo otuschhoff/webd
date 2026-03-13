@@ -308,8 +308,10 @@ func buildRuntimeUpstream(route Route, uid, gid int, stagedCAs map[string]*stage
 	if port == "" {
 		switch protocol {
 		case "http":
+		case "ws":
 			port = "80"
 		case "https":
+		case "wss":
 			port = "443"
 		default:
 			return server.Upstream{}, fmt.Errorf("unsupported scheme %q", u.Scheme)

@@ -72,6 +72,10 @@ func Validate(cfg *Config) error {
 		if err != nil || u.Scheme == "" || u.Host == "" {
 			return fmt.Errorf("invalid upstream for prefix %q: %q", prefix, r.Upstream)
 		}
+		scheme := strings.ToLower(strings.TrimSpace(u.Scheme))
+		if scheme != "http" && scheme != "https" && scheme != "ws" && scheme != "wss" {
+			return fmt.Errorf("invalid upstream scheme for prefix %q: %q", prefix, r.Upstream)
+		}
 
 		for _, raw := range r.AllowedIPv4 {
 			if err := validateAllowedIPv4Entry(raw); err != nil {
@@ -90,8 +94,8 @@ func Validate(cfg *Config) error {
 			if strings.TrimSpace(r.TrustedCA.CertPath) == "" {
 				return fmt.Errorf("trusted_ca.cert_path is required for prefix %q", prefix)
 			}
-			if !strings.EqualFold(u.Scheme, "https") {
-				return fmt.Errorf("trusted_ca is supported only for https upstreams for prefix %q", prefix)
+			if scheme != "https" && scheme != "wss" {
+				return fmt.Errorf("trusted_ca is supported only for https and wss upstreams for prefix %q", prefix)
 			}
 		}
 	}

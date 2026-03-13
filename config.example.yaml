@@ -19,6 +19,13 @@ routes:
   #     name: internal-api
   #     cert_path: /etc/pki/ca-trust/source/anchors/internal-api.crt
 
+  # Example WebSocket upstream over TLS.
+  # - path_prefix: /websocket/
+  #   upstream: wss://server.eu.example.com:9000/websocket/
+  #   trusted_ca:
+  #     name: server-ws
+  #     cert_path: /etc/pki/ca-trust/source/anchors/server-ws.crt
+
   # Fallback for everything else.
   - path_prefix: /
     upstream: http://127.0.0.1:3000

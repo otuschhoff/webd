@@ -74,7 +74,7 @@ func Validate(cfg *Config) error {
 		}
 
 		protocol := strings.ToLower(strings.TrimSpace(r.Upstream.Protocol))
-		if protocol != "http" && protocol != "https" {
+		if protocol != "http" && protocol != "https" && protocol != "ws" && protocol != "wss" {
 			return fmt.Errorf("invalid upstream protocol for prefix %q: %q", prefix, r.Upstream.Protocol)
 		}
 		if strings.TrimSpace(r.Upstream.Hostname) == "" {
@@ -101,8 +101,8 @@ func Validate(cfg *Config) error {
 			}
 		}
 		if r.Upstream.TrustedCA != nil {
-			if protocol != "https" {
-				return fmt.Errorf("trusted_ca is supported only for https upstreams for prefix %q", prefix)
+			if protocol != "https" && protocol != "wss" {
+				return fmt.Errorf("trusted_ca is supported only for https and wss upstreams for prefix %q", prefix)
 			}
 			if strings.TrimSpace(r.Upstream.TrustedCA.Name) == "" || strings.TrimSpace(r.Upstream.TrustedCA.File) == "" {
 				return fmt.Errorf("trusted_ca name and file are required for prefix %q", prefix)
