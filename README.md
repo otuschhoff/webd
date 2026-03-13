@@ -5,7 +5,9 @@
 - Provide a minimal Go HTTPS reverse proxy daemon for Linux hosts.
 - Serve both HTTP (`:80`) and HTTPS (`:443`) with configured TLS material.
 - Support zero-downtime reload of TLS cert/key and route config via `SIGHUP`.
-- Keep operations simple with built-in CLI subcommands: `run`, `reload`, `check`, and `setup`.
+- Split binaries by responsibility:
+  - `httpsd` for the HTTP(S) data-plane server.
+  - `httpsdctl` for control-plane operations (`reload`, `check`, `setup`).
 
 ## Usage
 
@@ -15,6 +17,10 @@ Build a local binary:
 CGO_ENABLED=0 go build \
   -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
   -o ./httpsd ./cmd/httpsd
+
+CGO_ENABLED=0 go build \
+  -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -o ./httpsdctl ./cmd/httpsdctl
 ```
 
 Run the proxy server:
@@ -26,19 +32,19 @@ Run the proxy server:
 Reload config + TLS on a running process:
 
 ```sh
-./httpsd reload
+./httpsdctl reload
 ```
 
 Validate and pretty-print config:
 
 ```sh
-./httpsd check --config /etc/httpsd/config.yaml
+./httpsdctl check --config /etc/httpsd/config.yaml
 ```
 
 Host setup (root required):
 
 ```sh
-sudo ./httpsd setup
+sudo ./httpsdctl setup
 ```
 
 ## Configuration
@@ -72,7 +78,8 @@ TLS notes:
 
 Project layout:
 
-- `cmd/httpsd/main.go`: thin entrypoint.
+- `cmd/httpsd/main.go`: data-plane daemon entrypoint.
+- `cmd/httpsdctl/main.go`: control-plane utility entrypoint.
 - `internal/cli`: Cobra command wiring.
 - `internal/server`: proxy runtime, request logging, TLS/config SIGHUP reload.
 - `internal/proxycfg`: config model, load/validate, pretty/color output.
@@ -126,7 +133,10 @@ go test ./...
 CGO_ENABLED=0 go build \
   -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
   -o ./httpsd ./cmd/httpsd
-./httpsd check --config ./config.example.yaml
+CGO_ENABLED=0 go build \
+  -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -o ./httpsdctl ./cmd/httpsdctl
+./httpsdctl check --config ./config.example.yaml
 ```
 
 ### run
@@ -144,7 +154,10 @@ CGO_ENABLED=0 go build \
 CGO_ENABLED=0 go build \
   -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
   -o ./httpsd ./cmd/httpsd
-./httpsd reload
+CGO_ENABLED=0 go build \
+  -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -o ./httpsdctl ./cmd/httpsdctl
+./httpsdctl reload
 ```
 
 ### setup
@@ -153,5 +166,8 @@ CGO_ENABLED=0 go build \
 CGO_ENABLED=0 go build \
   -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
   -o ./httpsd ./cmd/httpsd
-sudo ./httpsd setup
+CGO_ENABLED=0 go build \
+  -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -o ./httpsdctl ./cmd/httpsdctl
+sudo ./httpsdctl setup
 ```

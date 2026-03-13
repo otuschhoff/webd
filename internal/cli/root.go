@@ -9,11 +9,9 @@ import (
 	"httpsd/internal/setup"
 )
 
-// Execute builds the CLI command tree and runs the selected command.
-func Execute() error {
+// ExecuteServer runs the data-plane daemon CLI (HTTP/HTTPS server only).
+func ExecuteServer() error {
 	runOpts := app.DefaultRunOptions()
-	setupOpts := app.DefaultSetupOptions()
-	reloadOpts := reloadcmd.DefaultOptions()
 
 	rootCmd := &cobra.Command{
 		Use:     "httpsd",
@@ -42,6 +40,29 @@ func Execute() error {
 	}
 	runCmd.Flags().BoolVar(&runOpts.Force, "force", runOpts.Force, "Allow running as a user other than --run-user")
 
+	rootCmd.AddCommand(runCmd)
+	return rootCmd.Execute()
+}
+
+// ExecuteControl runs the control-plane CLI (check, reload, setup).
+func ExecuteControl() error {
+	runOpts := app.DefaultRunOptions()
+	setupOpts := app.DefaultSetupOptions()
+	reloadOpts := reloadcmd.DefaultOptions()
+
+	rootCmd := &cobra.Command{
+		Use:     "httpsdctl",
+		Short:   "HTTPS proxy control-plane commands",
+		Version: app.VersionString(),
+	}
+
+	rootCmd.PersistentFlags().StringVar(&runOpts.ConfigPath, "config", runOpts.ConfigPath, "Path to YAML reverse-proxy config")
+	rootCmd.PersistentFlags().StringVar(&runOpts.HTTPAddr, "http-addr", runOpts.HTTPAddr, "HTTP listen address")
+	rootCmd.PersistentFlags().StringVar(&runOpts.HTTPSAddr, "https-addr", runOpts.HTTPSAddr, "HTTPS listen address")
+	rootCmd.PersistentFlags().StringVar(&runOpts.TLSCertPath, "tls-cert", runOpts.TLSCertPath, "TLS certificate file")
+	rootCmd.PersistentFlags().StringVar(&runOpts.TLSKeyPath, "tls-key", runOpts.TLSKeyPath, "TLS private key file")
+	rootCmd.PersistentFlags().StringVar(&runOpts.AccessLogPath, "access-log", runOpts.AccessLogPath, "Access log path")
+	rootCmd.PersistentFlags().StringVar(&runOpts.RunUser, "run-user", runOpts.RunUser, "Expected runtime user for the server process")
 	reloadCmd := &cobra.Command{
 		Use:   "reload",
 		Short: "Stage TLS artifacts under /run and reload running httpsd",
@@ -83,6 +104,6 @@ func Execute() error {
 	setupCmd.Flags().StringVar(&setupOpts.BinaryPath, "binary", setupOpts.BinaryPath, "httpsd binary path for setcap configuration")
 	setupCmd.Flags().BoolVar(&setupOpts.Force, "force", setupOpts.Force, "Allow overwriting an existing non-matching systemd unit file")
 
-	rootCmd.AddCommand(runCmd, reloadCmd, checkCmd, setupCmd)
+	rootCmd.AddCommand(reloadCmd, checkCmd, setupCmd)
 	return rootCmd.Execute()
 }

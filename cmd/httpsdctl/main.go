@@ -9,7 +9,7 @@ import (
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.LUTC | log.Lmicroseconds)
-	if err := cli.ExecuteServer(); err != nil {
+	if err := cli.ExecuteControl(); err != nil {
 		log.Printf("fatal: %v", err)
 		os.Exit(1)
 	}

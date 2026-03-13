@@ -49,9 +49,9 @@ StandardOutput=journal
 StandardError=journal
 RuntimeDirectory=httpsd
 RuntimeDirectoryMode=0750
-ExecStartPre=/opt/httpsd/current/sbin/httpsd reload --prepare-only
+ExecStartPre=/opt/httpsd/current/sbin/httpsdctl reload --prepare-only
 ExecStart=/opt/httpsd/current/sbin/httpsd run
-ExecReload=/opt/httpsd/current/sbin/httpsd reload
+ExecReload=/opt/httpsd/current/sbin/httpsdctl reload
 Restart=on-failure
 
 # Security: Give the binary permission to bind to ports 80/443
