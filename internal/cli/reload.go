@@ -276,10 +276,14 @@ func buildRuntimeConfig(cfg *Config, uid, gid int) (*server.Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("route path_prefix=%q upstream=%q: %w", route.PathPrefix, route.Upstream, err)
 		}
+		allowedIPv4Ranges, err := translateAllowedIPv4(route.AllowedIPv4)
+		if err != nil {
+			return nil, fmt.Errorf("route path_prefix=%q allowed_ipv4: %w", route.PathPrefix, err)
+		}
 		resolved.Routes = append(resolved.Routes, server.Route{
-			PathPrefix:  route.PathPrefix,
-			AllowedIPv4: append([]string(nil), route.AllowedIPv4...),
-			Upstream:    upstream,
+			PathPrefix:        route.PathPrefix,
+			AllowedIPv4Ranges: allowedIPv4Ranges,
+			Upstream:          upstream,
 		})
 	}
 	return resolved, nil

@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
-	"net/netip"
 	"net/url"
 	"os"
 	"os/signal"
@@ -30,14 +29,9 @@ import (
 type RunOptions = app.RunOptions
 
 type routeProxy struct {
-	prefix      string
-	proxy       *httputil.ReverseProxy
-	allowedIPv4 []ipv4Range
-}
-
-type ipv4Range struct {
-	start uint32
-	end   uint32
+	prefix            string
+	proxy             *httputil.ReverseProxy
+	allowedIPv4Ranges []IPv4Range
 }
 
 var reverseProxyBufferPool = &byteSlicePool{pool: sync.Pool{}}
@@ -101,7 +95,7 @@ func Run(opts RunOptions) error {
 		clientIP := requestRemoteIP(r)
 		for _, route := range routesNow {
 			if strings.HasPrefix(r.URL.Path, route.prefix) {
-				if len(route.allowedIPv4) > 0 && !isClientIPv4Allowed(clientIP, route.allowedIPv4) {
+				if len(route.allowedIPv4Ranges) > 0 && !isClientIPv4Allowed(clientIP, route.allowedIPv4Ranges) {
 					http.Error(w, "Forbidden", http.StatusForbidden)
 					errLog.Printf("access_denied path=%q route_prefix=%q client_ip=%q reason=client_ip_not_allowed", r.URL.Path, route.prefix, clientIP)
 					return
@@ -213,11 +207,6 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			prefix = "/"
 		}
 
-		allowedIPv4, err := parseAllowedIPv4Rules(r.AllowedIPv4)
-		if err != nil {
-			return nil, fmt.Errorf("invalid allowed_ipv4 for prefix %q: %w", prefix, err)
-		}
-
 		targetURL := upstreamURL(r.Upstream)
 		upstream := targetURL.String()
 
@@ -238,7 +227,7 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			errLog.Printf("proxy_error upstream=%q path=%q err=%v", upstream, req.URL.Path, proxyErr)
 		}
 
-		routes = append(routes, routeProxy{prefix: prefix, proxy: proxy, allowedIPv4: allowedIPv4})
+		routes = append(routes, routeProxy{prefix: prefix, proxy: proxy, allowedIPv4Ranges: append([]IPv4Range(nil), r.AllowedIPv4Ranges...)})
 	}
 
 	sort.Slice(routes, func(i, j int) bool {
@@ -248,78 +237,18 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 	return routes, nil
 }
 
-func parseAllowedIPv4Rules(entries []string) ([]ipv4Range, error) {
-	if len(entries) == 0 {
-		return nil, nil
-	}
-
-	ranges := make([]ipv4Range, 0, len(entries))
-	for _, raw := range entries {
-		entry := strings.TrimSpace(raw)
-		if entry == "" {
-			return nil, fmt.Errorf("entry must not be empty")
-		}
-
-		if strings.Contains(entry, "-") {
-			parts := strings.SplitN(entry, "-", 2)
-			if len(parts) != 2 {
-				return nil, fmt.Errorf("invalid range %q", entry)
-			}
-			start, err := parseIPv4Address(parts[0])
-			if err != nil {
-				return nil, fmt.Errorf("invalid range start in %q: %w", entry, err)
-			}
-			end, err := parseIPv4Address(parts[1])
-			if err != nil {
-				return nil, fmt.Errorf("invalid range end in %q: %w", entry, err)
-			}
-			startN := ipv4ToUint32(start)
-			endN := ipv4ToUint32(end)
-			if startN > endN {
-				return nil, fmt.Errorf("range start is greater than range end in %q", entry)
-			}
-			ranges = append(ranges, ipv4Range{start: startN, end: endN})
-			continue
-		}
-
-		if strings.Contains(entry, "/") {
-			prefix, err := netip.ParsePrefix(entry)
-			if err != nil {
-				return nil, fmt.Errorf("invalid CIDR %q", entry)
-			}
-			if !prefix.Addr().Is4() {
-				return nil, fmt.Errorf("CIDR must be IPv4: %q", entry)
-			}
-			masked := prefix.Masked()
-			startN := ipv4ToUint32(masked.Addr())
-			bits := masked.Bits()
-			hostMask := uint32(0)
-			if bits < 32 {
-				hostMask = (1 << uint32(32-bits)) - 1
-			}
-			ranges = append(ranges, ipv4Range{start: startN, end: startN | hostMask})
-			continue
-		}
-
-		addr, err := parseIPv4Address(entry)
-		if err != nil {
-			return nil, fmt.Errorf("invalid IPv4 address %q", entry)
-		}
-		n := ipv4ToUint32(addr)
-		ranges = append(ranges, ipv4Range{start: n, end: n})
-	}
-
-	return ranges, nil
-}
-
-func isClientIPv4Allowed(rawIP string, ranges []ipv4Range) bool {
-	addr, err := parseIPv4Address(rawIP)
-	if err != nil {
+func isClientIPv4Allowed(rawIP string, ranges []IPv4Range) bool {
+	parsed := net.ParseIP(strings.TrimSpace(rawIP))
+	if parsed == nil {
 		return false
 	}
-	n := ipv4ToUint32(addr)
+	v4 := parsed.To4()
+	if v4 == nil {
+		return false
+	}
+	n := uint32(v4[0])<<24 | uint32(v4[1])<<16 | uint32(v4[2])<<8 | uint32(v4[3])
 	for _, r := range ranges {
-		if n >= r.start && n <= r.end {
+		if n >= r.Start && n <= r.End {
 			return true
 		}
 	}

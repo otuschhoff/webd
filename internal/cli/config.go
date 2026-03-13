@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 
+	"httpsd/internal/server"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -152,6 +154,62 @@ func parseIPv4Address(raw string) (netip.Addr, error) {
 func ipv4ToUint32(addr netip.Addr) uint32 {
 	b := addr.As4()
 	return uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
+}
+
+func translateAllowedIPv4(entries []string) ([]server.IPv4Range, error) {
+	if len(entries) == 0 {
+		return nil, nil
+	}
+
+	ranges := make([]server.IPv4Range, 0, len(entries))
+	for _, raw := range entries {
+		value := strings.TrimSpace(raw)
+		if value == "" {
+			return nil, fmt.Errorf("entry must not be empty")
+		}
+
+		if strings.Contains(value, "-") {
+			parts := strings.SplitN(value, "-", 2)
+			start, err := parseIPv4Address(parts[0])
+			if err != nil {
+				return nil, fmt.Errorf("invalid range start in %q: %w", value, err)
+			}
+			end, err := parseIPv4Address(parts[1])
+			if err != nil {
+				return nil, fmt.Errorf("invalid range end in %q: %w", value, err)
+			}
+			ranges = append(ranges, server.IPv4Range{Start: ipv4ToUint32(start), End: ipv4ToUint32(end)})
+			continue
+		}
+
+		if strings.Contains(value, "/") {
+			prefix, err := netip.ParsePrefix(value)
+			if err != nil {
+				return nil, fmt.Errorf("invalid CIDR %q", value)
+			}
+			if !prefix.Addr().Is4() {
+				return nil, fmt.Errorf("CIDR must be IPv4: %q", value)
+			}
+			masked := prefix.Masked()
+			start := ipv4ToUint32(masked.Addr())
+			bits := masked.Bits()
+			hostMask := uint32(0)
+			if bits < 32 {
+				hostMask = (1 << uint32(32-bits)) - 1
+			}
+			ranges = append(ranges, server.IPv4Range{Start: start, End: start | hostMask})
+			continue
+		}
+
+		addr, err := parseIPv4Address(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid IPv4 address %q", value)
+		}
+		value32 := ipv4ToUint32(addr)
+		ranges = append(ranges, server.IPv4Range{Start: value32, End: value32})
+	}
+
+	return ranges, nil
 }
 
 func isTrustedCAName(name string) bool {
