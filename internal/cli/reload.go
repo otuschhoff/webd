@@ -522,7 +522,7 @@ func stageTrustedCA(trustedCA *TrustedCA, upstream server.Upstream, uid, gid int
 		return nil, fmt.Errorf("stage trusted_ca %q: %w", name, err)
 	}
 
-	return &server.TrustedCA{Name: name, File: entry.destPath}, nil
+	return &server.TrustedCA{Name: name, File: filepath.Base(entry.destPath)}, nil
 }
 
 func ensureRuntimeTrustedCADir(uid, gid int) error {

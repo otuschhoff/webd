@@ -49,6 +49,7 @@ StandardOutput=journal
 StandardError=journal
 RuntimeDirectory=httpsd
 RuntimeDirectoryMode=0750
+WorkingDirectory=/run/httpsd
 ExecStartPre=/opt/httpsd/current/sbin/httpsdctl reload --prepare-only
 ExecStart=/opt/httpsd/current/sbin/httpsd
 ExecReload=/opt/httpsd/current/sbin/httpsdctl reload

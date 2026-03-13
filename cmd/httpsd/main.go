@@ -10,9 +10,9 @@ import (
 )
 
 const (
-	configPath    = "/run/httpsd/config.json"
-	tlsCertPath   = "/run/httpsd/tls.crt"
-	tlsKeyPath    = "/run/httpsd/tls.key"
+	configPath    = "config.json"
+	tlsCertPath   = "tls.crt"
+	tlsKeyPath    = "tls.key"
 	resolvConf    = "/etc/resolv.conf"
 	httpAddr      = ":80"
 	httpsAddr     = ":443"
