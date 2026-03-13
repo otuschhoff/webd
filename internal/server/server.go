@@ -533,7 +533,7 @@ func accessLogMiddleware(next http.Handler, logger *log.Logger) http.Handler {
 		dur := time.Since(start)
 
 		logger.Printf(
-			"ts=%s ip=%s method=%s url=%s status=%d size=%d duration_ms=%d agent=%s",
+			"t=%s i=%s x=%s u=%s c=%d b=%d d=%d a=%s",
 			start.UTC().Format(time.RFC3339),
 			clientIP(r),
 			r.Method,
