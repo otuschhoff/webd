@@ -2,9 +2,10 @@ package app
 
 import "fmt"
 
-// Version, BuildTime, and CommitSHA are build metadata values populated at link time.
+const Version = "v0.1.1"
+
+// BuildTime and CommitSHA are build metadata values populated at link time.
 var (
-	Version   = "v0.1.0"
 	BuildTime = "unknown"
 	CommitSHA = "unknown"
 )

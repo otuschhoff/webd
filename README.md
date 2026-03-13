@@ -17,11 +17,11 @@ Build a local binary:
 mkdir -p ./bin
 
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
   -o ./bin/httpsd ./cmd/httpsd
 
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
   -o ./bin/httpsdctl ./cmd/httpsdctl
 ```
 
@@ -135,7 +135,7 @@ xc check          # validate config.example.yaml
 mkdir -p ./bin
 
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
   -o ./bin/httpsdctl ./cmd/httpsdctl
 ```
 
@@ -145,7 +145,7 @@ CGO_ENABLED=0 go build \
 mkdir -p ./bin
 
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
   -o ./bin/httpsd ./cmd/httpsd
 ```
 
@@ -155,11 +155,11 @@ CGO_ENABLED=0 go build \
 mkdir -p ./bin
 
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
   -o ./bin/httpsd ./cmd/httpsd
 
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
   -o ./bin/httpsdctl ./cmd/httpsdctl
 ```
 
@@ -183,10 +183,10 @@ go test ./...
 mkdir -p ./bin
 
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
   -o ./bin/httpsd ./cmd/httpsd
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
   -o ./bin/httpsdctl ./cmd/httpsdctl
 ./bin/httpsdctl check --config ./config.example.yaml
 ```
@@ -197,7 +197,7 @@ CGO_ENABLED=0 go build \
 mkdir -p ./bin
 
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
   -o ./bin/httpsd ./cmd/httpsd
 ./bin/httpsd
 ```
@@ -208,10 +208,10 @@ CGO_ENABLED=0 go build \
 mkdir -p ./bin
 
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
   -o ./bin/httpsd ./cmd/httpsd
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
   -o ./bin/httpsdctl ./cmd/httpsdctl
 ./bin/httpsdctl reload
 ```
@@ -222,10 +222,10 @@ CGO_ENABLED=0 go build \
 mkdir -p ./bin
 
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
   -o ./bin/httpsd ./cmd/httpsd
 CGO_ENABLED=0 go build \
-  -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
+  -ldflags "-X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
   -o ./bin/httpsdctl ./cmd/httpsdctl
 sudo ./bin/httpsdctl setup
 ```
