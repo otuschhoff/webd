@@ -50,7 +50,7 @@ StandardError=journal
 RuntimeDirectory=httpsd
 RuntimeDirectoryMode=0750
 ExecStartPre=/opt/httpsd/current/sbin/httpsdctl reload --prepare-only
-ExecStart=/opt/httpsd/current/sbin/httpsd run
+ExecStart=/opt/httpsd/current/sbin/httpsd
 ExecReload=/opt/httpsd/current/sbin/httpsdctl reload
 Restart=on-failure
 

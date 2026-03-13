@@ -5,44 +5,8 @@ import (
 
 	"httpsd/internal/app"
 	"httpsd/internal/reloadcmd"
-	"httpsd/internal/server"
 	"httpsd/internal/setup"
 )
-
-// ExecuteServer runs the data-plane daemon CLI (HTTP/HTTPS server only).
-func ExecuteServer() error {
-	runOpts := app.DefaultRunOptions()
-
-	rootCmd := &cobra.Command{
-		Use:     "httpsd",
-		Short:   "HTTPS reverse proxy daemon",
-		Version: app.VersionString(),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return server.Run(runOpts)
-		},
-	}
-
-	rootCmd.PersistentFlags().StringVar(&runOpts.ConfigPath, "config", runOpts.ConfigPath, "Path to YAML reverse-proxy config")
-	rootCmd.PersistentFlags().StringVar(&runOpts.HTTPAddr, "http-addr", runOpts.HTTPAddr, "HTTP listen address")
-	rootCmd.PersistentFlags().StringVar(&runOpts.HTTPSAddr, "https-addr", runOpts.HTTPSAddr, "HTTPS listen address")
-	rootCmd.PersistentFlags().StringVar(&runOpts.TLSCertPath, "tls-cert", runOpts.TLSCertPath, "TLS certificate file")
-	rootCmd.PersistentFlags().StringVar(&runOpts.TLSKeyPath, "tls-key", runOpts.TLSKeyPath, "TLS private key file")
-	rootCmd.PersistentFlags().StringVar(&runOpts.AccessLogPath, "access-log", runOpts.AccessLogPath, "Access log path")
-	rootCmd.PersistentFlags().StringVar(&runOpts.RunUser, "run-user", runOpts.RunUser, "Expected runtime user for the server process")
-	rootCmd.Flags().BoolVar(&runOpts.Force, "force", runOpts.Force, "Allow running as a user other than --run-user")
-
-	runCmd := &cobra.Command{
-		Use:   "run",
-		Short: "Run HTTPS proxy server",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return server.Run(runOpts)
-		},
-	}
-	runCmd.Flags().BoolVar(&runOpts.Force, "force", runOpts.Force, "Allow running as a user other than --run-user")
-
-	rootCmd.AddCommand(runCmd)
-	return rootCmd.Execute()
-}
 
 // ExecuteControl runs the control-plane CLI (check, reload, setup).
 func ExecuteControl() error {

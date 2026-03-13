@@ -26,7 +26,7 @@ CGO_ENABLED=0 go build \
 Run the proxy server:
 
 ```sh
-./httpsd run --config /etc/httpsd/config.yaml
+./httpsd
 ```
 
 Reload config + TLS on a running process:
@@ -145,7 +145,7 @@ CGO_ENABLED=0 go build \
 CGO_ENABLED=0 go build \
   -ldflags "-X 'httpsd/internal/app.Version=v0.1.0' -X 'httpsd/internal/app.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')' -X 'httpsd/internal/app.CommitSHA=$(git rev-parse --short=12 HEAD)'" \
   -o ./httpsd ./cmd/httpsd
-./httpsd run --config "${CONFIG:-/etc/httpsd/config.yaml}"
+./httpsd
 ```
 
 ### reload
