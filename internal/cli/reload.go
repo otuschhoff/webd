@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"httpsd/internal/app"
+	"httpsd/internal/schema"
 	"httpsd/internal/server"
 	"httpsd/internal/syslogx"
 )
@@ -250,6 +251,9 @@ func stageConfigArtifact(opts Options, uid, gid int) error {
 	runtimeCfg, err := buildRuntimeConfig(cfg, uid, gid)
 	if err != nil {
 		return fmt.Errorf("build runtime config: %w", err)
+	}
+	if err := schema.ValidateRuntimeConfig(runtimeCfg); err != nil {
+		return fmt.Errorf("validate generated runtime config against json schema: %w", err)
 	}
 
 	jsonConfig, err := json.MarshalIndent(runtimeCfg, "", "  ")

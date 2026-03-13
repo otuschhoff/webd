@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"httpsd/internal/schema"
 	"httpsd/internal/server"
 
 	"gopkg.in/yaml.v3"
@@ -45,6 +46,14 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("read config %s: %w", path, err)
 	}
 
+	var sourceRaw any
+	if err := yaml.Unmarshal(b, &sourceRaw); err != nil {
+		return nil, fmt.Errorf("parse config %s as yaml: %w", path, err)
+	}
+	if err := schema.ValidateSourceConfig(normalizeYAMLValue(sourceRaw)); err != nil {
+		return nil, fmt.Errorf("validate config %s against json schema: %w", path, err)
+	}
+
 	var cfg Config
 	if err := yaml.Unmarshal(b, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config %s as yaml: %w", path, err)
@@ -54,6 +63,32 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+// normalizeYAMLValue converts YAML-decoded maps into JSON-compatible map[string]any values.
+func normalizeYAMLValue(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, val := range x {
+			out[k] = normalizeYAMLValue(val)
+		}
+		return out
+	case map[any]any:
+		out := make(map[string]any, len(x))
+		for k, val := range x {
+			out[fmt.Sprint(k)] = normalizeYAMLValue(val)
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, item := range x {
+			out[i] = normalizeYAMLValue(item)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 // Validate checks that the configuration contains valid route definitions.

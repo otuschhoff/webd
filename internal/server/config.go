@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"os"
 	"strings"
+
+	"httpsd/internal/schema"
 )
 
 type IPv4Range struct {
@@ -47,6 +49,14 @@ func LoadJSON(path string) (*Config, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read runtime config %s: %w", path, err)
+	}
+
+	var raw any
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return nil, fmt.Errorf("parse runtime config %s as json: %w", path, err)
+	}
+	if err := schema.ValidateRuntimeConfig(raw); err != nil {
+		return nil, fmt.Errorf("validate runtime config %s against json schema: %w", path, err)
 	}
 
 	var cfg Config

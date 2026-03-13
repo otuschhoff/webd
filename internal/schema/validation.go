@@ -1,0 +1,247 @@
+package schema
+
+import (
+	"encoding/json"
+	"fmt"
+	"sync"
+
+	gjsonschema "github.com/google/jsonschema-go/jsonschema"
+)
+
+const sourceConfigSchemaJSON = `{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["routes"],
+  "properties": {
+    "routes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path_prefix"],
+        "properties": {
+          "path_prefix": {
+            "type": "string",
+            "pattern": "^(/.*)?$"
+          },
+          "upstream": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9+.-]*://.+"
+          },
+          "redirect": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9+.-]*://.+"
+          },
+          "allowed_ipv4": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "trusted_ca": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "cert_path"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "cert_path": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "oneOf": [
+          {
+            "required": ["upstream"],
+            "not": {
+              "required": ["redirect"]
+            }
+          },
+          {
+            "required": ["redirect"],
+            "not": {
+              "required": ["upstream"]
+            }
+          }
+        ]
+      }
+    }
+  }
+}`
+
+const runtimeConfigSchemaJSON = `{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["routes"],
+  "properties": {
+    "routes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path_prefix"],
+        "properties": {
+          "path_prefix": {
+            "type": "string",
+            "pattern": "^(/.*)?$"
+          },
+          "allowed_ipv4_ranges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["start", "end"],
+              "properties": {
+                "start": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                },
+                "end": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                }
+              }
+            }
+          },
+          "redirect": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9+.-]*://.+"
+          },
+          "upstream": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["protocol", "hostname", "port", "ipv4_addresses"],
+            "properties": {
+              "protocol": {
+                "type": "string",
+                "enum": ["http", "https", "ws", "wss"]
+              },
+              "hostname": {
+                "type": "string",
+                "minLength": 1
+              },
+              "port": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^/.*"
+              },
+              "raw_query": {
+                "type": "string"
+              },
+              "ipv4_addresses": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "trusted_ca": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "file"],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "oneOf": [
+          {
+            "required": ["upstream"],
+            "not": {
+              "required": ["redirect"]
+            }
+          },
+          {
+            "required": ["redirect"],
+            "not": {
+              "required": ["upstream"]
+            }
+          }
+        ]
+      }
+    }
+  }
+}`
+
+var (
+	sourceOnce sync.Once
+	sourceRS   *gjsonschema.Resolved
+	sourceErr  error
+
+	runtimeOnce sync.Once
+	runtimeRS   *gjsonschema.Resolved
+	runtimeErr  error
+)
+
+func ValidateSourceConfig(instance any) error {
+	rs, err := sourceResolved()
+	if err != nil {
+		return err
+	}
+	if err := rs.Validate(instance); err != nil {
+		return fmt.Errorf("source config schema validation failed: %w", err)
+	}
+	return nil
+}
+
+func ValidateRuntimeConfig(instance any) error {
+	rs, err := runtimeResolved()
+	if err != nil {
+		return err
+	}
+	if err := rs.Validate(instance); err != nil {
+		return fmt.Errorf("runtime config schema validation failed: %w", err)
+	}
+	return nil
+}
+
+func sourceResolved() (*gjsonschema.Resolved, error) {
+	sourceOnce.Do(func() {
+		sourceRS, sourceErr = resolveSchema(sourceConfigSchemaJSON)
+	})
+	return sourceRS, sourceErr
+}
+
+func runtimeResolved() (*gjsonschema.Resolved, error) {
+	runtimeOnce.Do(func() {
+		runtimeRS, runtimeErr = resolveSchema(runtimeConfigSchemaJSON)
+	})
+	return runtimeRS, runtimeErr
+}
+
+func resolveSchema(schemaJSON string) (*gjsonschema.Resolved, error) {
+	var schema gjsonschema.Schema
+	if err := json.Unmarshal([]byte(schemaJSON), &schema); err != nil {
+		return nil, fmt.Errorf("parse embedded json schema: %w", err)
+	}
+	rs, err := schema.Resolve(nil)
+	if err != nil {
+		return nil, fmt.Errorf("resolve embedded json schema: %w", err)
+	}
+	return rs, nil
+}
