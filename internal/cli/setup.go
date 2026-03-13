@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -118,6 +119,10 @@ func runSetup(opts SetupOptions) error {
 	}
 	fmt.Printf("ensured no file capabilities are set on %s (systemd AmbientCapabilities handles bind privileges)\n", opts.BinaryPath)
 
+	if err := ensureSystemdVersionForUnit(ServiceUnitContent); err != nil {
+		return err
+	}
+
 	serviceChanged, err := ensureSystemdUnit(opts.ServicePath, ServiceUnitContent, opts.Force)
 	if err != nil {
 		return err
@@ -201,6 +206,44 @@ func daemonReload() error {
 		return fmt.Errorf("systemctl daemon-reload failed: %v: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+func ensureSystemdVersionForUnit(unitContent string) error {
+	const requiredVersion = 233
+
+	version, err := detectSystemdMajorVersion()
+	if err != nil {
+		return fmt.Errorf("check systemd version for service hardening directives: %w", err)
+	}
+	if version < requiredVersion {
+		return fmt.Errorf("systemd version %d is too old for required service unit directives; need >= %d", version, requiredVersion)
+	}
+	return nil
+}
+
+func detectSystemdMajorVersion() (int, error) {
+	if _, err := exec.LookPath("systemctl"); err != nil {
+		return 0, fmt.Errorf("systemctl not found in PATH")
+	}
+
+	cmd := exec.Command("systemctl", "--version")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return 0, fmt.Errorf("systemctl --version failed: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+
+	// Expected output starts with something like: "systemd 252 (252.22-1-...)"
+	re := regexp.MustCompile(`(?m)^systemd\s+([0-9]+)\b`)
+	m := re.FindStringSubmatch(string(out))
+	if len(m) != 2 {
+		return 0, fmt.Errorf("could not parse systemd version from output: %q", strings.TrimSpace(string(out)))
+	}
+
+	v, convErr := strconv.Atoi(m[1])
+	if convErr != nil {
+		return 0, fmt.Errorf("parse systemd version %q: %w", m[1], convErr)
+	}
+	return v, nil
 }
 
 func ensureVersionedInstall() (string, error) {

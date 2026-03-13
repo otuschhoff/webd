@@ -50,10 +50,11 @@ RootDirectoryStartOnly=true
 WorkingDirectory=/
 BindReadOnlyPaths=/opt/webd/current/libexec/webd
 BindReadOnlyPaths=/opt/webd/current/sbin/webctl
-BindPaths=/dev/log
-ExecStartPre=/opt/webd/current/sbin/webctl reload --prepare-only
+BindReadOnlyPaths=/dev/log
+# Run reload helpers with full privileges outside service sandbox.
+ExecStartPre=+/opt/webd/current/sbin/webctl reload --prepare-only
 ExecStart=/opt/webd/current/libexec/webd
-ExecReload=/opt/webd/current/sbin/webctl reload
+ExecReload=+/opt/webd/current/sbin/webctl reload
 Restart=on-failure
 
 # Security: grant low-port bind capability at service runtime
@@ -62,7 +63,20 @@ AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 # Hardening: Prevent the app from gaining more privileges
 NoNewPrivileges=true
-ProtectSystem=full
+LockPersonality=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# Syscall Filter
+SystemCallArchitectures=native
+SystemCallFilter=@system-service @network-io @file-system @signal @process
+SystemCallFilter=~@clock @debug @module @mount @obsolete @privileged @raw-io @reboot @swap
+
+# Resources
+MemoryMax=32M
+
+# Jailing
+ProtectSystem=strict
 ProtectHome=true
 
 [Install]
