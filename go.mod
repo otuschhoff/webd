@@ -5,6 +5,7 @@ go 1.25.4
 require (
 	github.com/google/jsonschema-go v0.4.2
 	github.com/spf13/cobra v1.8.1
+	golang.org/x/crypto v0.49.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

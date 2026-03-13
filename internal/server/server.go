@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,6 +35,11 @@ type routeProxy struct {
 	proxy             *httputil.ReverseProxy
 	allowedIPv4Ranges []IPv4Range
 }
+
+const (
+	acmeChallengeURLPrefix = "/.well-known/acme-challenge/"
+	acmeChallengeJailDir   = "/acme-challenge"
+)
 
 var reverseProxyBufferPool = &byteSlicePool{pool: sync.Pool{}}
 
@@ -92,6 +98,10 @@ func Run(opts RunOptions) error {
 	defer closeRouteProxies(activeRoutes.Load().([]routeProxy))
 
 	router := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveACMEChallenge(w, r, errLog) {
+			return
+		}
+
 		routesNow := activeRoutes.Load().([]routeProxy)
 		clientIP := requestRemoteIP(r)
 		for _, route := range routesNow {
@@ -192,6 +202,43 @@ func Run(opts RunOptions) error {
 	}()
 
 	return <-errCh
+}
+
+func serveACMEChallenge(w http.ResponseWriter, r *http.Request, errLog *log.Logger) bool {
+	if !strings.HasPrefix(r.URL.Path, acmeChallengeURLPrefix) {
+		return false
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return true
+	}
+
+	token := strings.TrimPrefix(r.URL.Path, acmeChallengeURLPrefix)
+	if token == "" || strings.Contains(token, "/") || strings.Contains(token, "\\") || strings.Contains(token, "..") {
+		http.NotFound(w, r)
+		return true
+	}
+
+	path := filepath.Join(acmeChallengeJailDir, filepath.Base(token))
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.NotFound(w, r)
+			return true
+		}
+		errLog.Printf("acme_challenge_read_failed path=%q err=%v", path, err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return true
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	if r.Method == http.MethodHead {
+		w.WriteHeader(http.StatusOK)
+		return true
+	}
+	_, _ = w.Write(b)
+	return true
 }
 
 func closeRouteProxies(routes []routeProxy) {

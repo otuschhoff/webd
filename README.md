@@ -7,7 +7,7 @@
 - Support zero-downtime reload of TLS cert/key and route config via `SIGHUP`.
 - Split binaries by responsibility:
   - `webd` for the HTTP(S) data-plane server.
-  - `webctl` for control-plane operations (`reload`, `check`, `setup`).
+  - `webctl` for control-plane operations (`reload`, `check`, `setup`, `letsencrypt`).
 
 ## Usage
 
@@ -47,6 +47,12 @@ Host setup (root required):
 
 ```sh
 sudo ./bin/webctl setup
+```
+
+Request and deploy a Let's Encrypt certificate (root required):
+
+```sh
+sudo ./bin/webctl letsencrypt --host example.com --email admin@example.com
 ```
 
 ## Configuration
@@ -197,6 +203,41 @@ TLS notes:
 - `--tls-cert` should contain the server certificate chain PEM bundle.
 - Bundle order should be leaf cert first, then intermediates.
 - `--tls-key` is the private key PEM.
+
+## Let's Encrypt
+
+`webctl letsencrypt` uses ACME HTTP-01 and expects `webd` to be reachable on port 80 for the requested host.
+
+Prerequisites:
+
+- Public DNS for `--host` must point to this machine.
+- Port `80/tcp` must be reachable from the internet.
+- `webd` must be running during validation.
+- Run as root so `webctl` can write cert/key files and deploy runtime artifacts.
+
+How it works:
+
+- `webctl` stages HTTP-01 token files under `/run/webd/acme-challenge/`.
+- `webd` serves `/.well-known/acme-challenge/<token>` directly from its chroot jail path `/acme-challenge/<token>`.
+- After issuance, `webctl` writes the certificate chain PEM and key to local filesystem paths.
+- By default, `webctl` immediately deploys the new cert/key to `webd` through the existing reload workflow.
+
+Examples:
+
+```sh
+# Request for local hostname (if publicly resolvable), then deploy
+sudo ./bin/webctl letsencrypt --email admin@example.com
+
+# Request for explicit host, save to custom paths, then deploy
+sudo ./bin/webctl letsencrypt \
+  --host example.com \
+  --email admin@example.com \
+  --cert-path /etc/pki/tls/certs/example.com.crt \
+  --key-path /etc/pki/tls/private/example.com.key
+
+# Request only (no deploy)
+sudo ./bin/webctl letsencrypt --host example.com --deploy=false
+```
 
 ## Implementation
 

@@ -6,11 +6,12 @@ import (
 	"webd/internal/app"
 )
 
-// ExecuteControl runs the control-plane CLI (check, reload, setup).
+// ExecuteControl runs the control-plane CLI (check, reload, setup, letsencrypt).
 func ExecuteControl() error {
 	runOpts := app.DefaultRunOptions()
 	setupOpts := app.DefaultSetupOptions()
 	reloadOpts := DefaultOptions()
+	letsEncryptOpts := defaultLetsEncryptOptions()
 
 	rootCmd := &cobra.Command{
 		Use:     "webctl",
@@ -66,6 +67,29 @@ func ExecuteControl() error {
 	setupCmd.Flags().StringVar(&setupOpts.BinaryPath, "binary", setupOpts.BinaryPath, "webd binary path for setcap configuration")
 	setupCmd.Flags().BoolVar(&setupOpts.Force, "force", setupOpts.Force, "Allow overwriting an existing non-matching systemd unit file")
 
-	rootCmd.AddCommand(reloadCmd, checkCmd, setupCmd)
+	letsEncryptCmd := &cobra.Command{
+		Use:           "letsencrypt",
+		Short:         "Request a Let's Encrypt certificate and deploy it",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			letsEncryptOpts.Reload.HTTPAddr = runOpts.HTTPAddr
+			letsEncryptOpts.Reload.HTTPSAddr = runOpts.HTTPSAddr
+			letsEncryptOpts.Reload.RunUser = runOpts.RunUser
+			letsEncryptOpts.Reload.ConfigSource = runOpts.ConfigPath
+			letsEncryptOpts.Reload.TLSCertDest = runOpts.TLSCertPath
+			letsEncryptOpts.Reload.TLSKeyDest = runOpts.TLSKeyPath
+			return RunLetsEncrypt(letsEncryptOpts)
+		},
+	}
+	letsEncryptCmd.Flags().StringVar(&letsEncryptOpts.Host, "host", letsEncryptOpts.Host, "DNS host name to request (defaults to local hostname)")
+	letsEncryptCmd.Flags().StringVar(&letsEncryptOpts.Email, "email", letsEncryptOpts.Email, "Contact email for ACME account (optional)")
+	letsEncryptCmd.Flags().StringVar(&letsEncryptOpts.DirectoryURL, "directory-url", letsEncryptOpts.DirectoryURL, "ACME directory URL")
+	letsEncryptCmd.Flags().StringVar(&letsEncryptOpts.ChallengeDir, "challenge-dir", letsEncryptOpts.ChallengeDir, "Directory where webd serves ACME HTTP-01 challenge files")
+	letsEncryptCmd.Flags().StringVar(&letsEncryptOpts.CertPath, "cert-path", letsEncryptOpts.CertPath, "Path to save certificate chain PEM")
+	letsEncryptCmd.Flags().StringVar(&letsEncryptOpts.KeyPath, "key-path", letsEncryptOpts.KeyPath, "Path to save private key PEM")
+	letsEncryptCmd.Flags().BoolVar(&letsEncryptOpts.Deploy, "deploy", letsEncryptOpts.Deploy, "Deploy to running webd after issuance")
+
+	rootCmd.AddCommand(reloadCmd, checkCmd, setupCmd, letsEncryptCmd)
 	return rootCmd.Execute()
 }
