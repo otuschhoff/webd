@@ -4,6 +4,13 @@ routes:
   # Requests beginning with /api/ are proxied to backend API v1 paths.
   - path_prefix: /api/
     upstream: http://127.0.0.1:8080/api/v1/
+    # Optional IPv4 client allow-list for this route. Supports:
+    # - single IPv4: 192.0.2.10
+    # - range: 192.0.2.10-192.0.2.50
+    # - subnet (CIDR): 192.0.2.0/24
+    allowed_ipv4:
+      - 127.0.0.1
+      - 10.0.0.0/8
 
   # Example HTTPS upstream with a custom trusted CA bundle.
   # - path_prefix: /internal/

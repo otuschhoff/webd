@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"net/netip"
 	"net/url"
 	"os"
 	"regexp"
@@ -21,6 +22,8 @@ type Route struct {
 	PathPrefix string `yaml:"path_prefix" json:"path_prefix"`
 	// Upstream is the absolute HTTP or HTTPS upstream base URL.
 	Upstream string `yaml:"upstream" json:"upstream"`
+	// AllowedIPv4 optionally restricts this route to specific IPv4 addresses, ranges, and/or CIDRs.
+	AllowedIPv4 []string `yaml:"allowed_ipv4,omitempty" json:"allowed_ipv4,omitempty"`
 	// TrustedCA identifies a PEM CA bundle that should verify this upstream TLS server.
 	TrustedCA *TrustedCA `yaml:"trusted_ca,omitempty" json:"trusted_ca,omitempty"`
 }
@@ -68,6 +71,12 @@ func Validate(cfg *Config) error {
 			return fmt.Errorf("invalid upstream for prefix %q: %q", prefix, r.Upstream)
 		}
 
+		for _, raw := range r.AllowedIPv4 {
+			if err := validateAllowedIPv4Entry(raw); err != nil {
+				return fmt.Errorf("invalid allowed_ipv4 for prefix %q: %w", prefix, err)
+			}
+		}
+
 		if r.TrustedCA != nil {
 			caName := strings.TrimSpace(r.TrustedCA.Name)
 			if caName == "" {
@@ -85,6 +94,64 @@ func Validate(cfg *Config) error {
 		}
 	}
 	return nil
+}
+
+func validateAllowedIPv4Entry(raw string) error {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return fmt.Errorf("entry must not be empty")
+	}
+
+	if strings.Contains(value, "-") {
+		parts := strings.SplitN(value, "-", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid range %q", value)
+		}
+		start, err := parseIPv4Address(parts[0])
+		if err != nil {
+			return fmt.Errorf("invalid range start in %q: %w", value, err)
+		}
+		end, err := parseIPv4Address(parts[1])
+		if err != nil {
+			return fmt.Errorf("invalid range end in %q: %w", value, err)
+		}
+		if ipv4ToUint32(start) > ipv4ToUint32(end) {
+			return fmt.Errorf("range start is greater than range end in %q", value)
+		}
+		return nil
+	}
+
+	if strings.Contains(value, "/") {
+		prefix, err := netip.ParsePrefix(value)
+		if err != nil {
+			return fmt.Errorf("invalid CIDR %q", value)
+		}
+		if !prefix.Addr().Is4() {
+			return fmt.Errorf("CIDR must be IPv4: %q", value)
+		}
+		return nil
+	}
+
+	if _, err := parseIPv4Address(value); err != nil {
+		return fmt.Errorf("invalid IPv4 address %q", value)
+	}
+	return nil
+}
+
+func parseIPv4Address(raw string) (netip.Addr, error) {
+	addr, err := netip.ParseAddr(strings.TrimSpace(raw))
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	if !addr.Is4() {
+		return netip.Addr{}, fmt.Errorf("must be IPv4")
+	}
+	return addr, nil
+}
+
+func ipv4ToUint32(addr netip.Addr) uint32 {
+	b := addr.As4()
+	return uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
 }
 
 func isTrustedCAName(name string) bool {

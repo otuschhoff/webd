@@ -277,8 +277,9 @@ func buildRuntimeConfig(cfg *Config, uid, gid int) (*server.Config, error) {
 			return nil, fmt.Errorf("route path_prefix=%q upstream=%q: %w", route.PathPrefix, route.Upstream, err)
 		}
 		resolved.Routes = append(resolved.Routes, server.Route{
-			PathPrefix: route.PathPrefix,
-			Upstream:   upstream,
+			PathPrefix:  route.PathPrefix,
+			AllowedIPv4: append([]string(nil), route.AllowedIPv4...),
+			Upstream:    upstream,
 		})
 	}
 	return resolved, nil
