@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -27,6 +28,26 @@ import (
 type routeProxy struct {
 	prefix string
 	proxy  *httputil.ReverseProxy
+}
+
+var reverseProxyBufferPool = &byteSlicePool{pool: sync.Pool{}}
+
+type byteSlicePool struct {
+	pool sync.Pool
+}
+
+func (p *byteSlicePool) Get() []byte {
+	if buf, ok := p.pool.Get().([]byte); ok && len(buf) == 32*1024 {
+		return buf
+	}
+	return make([]byte, 32*1024)
+}
+
+func (p *byteSlicePool) Put(b []byte) {
+	if cap(b) < 32*1024 {
+		return
+	}
+	p.pool.Put(b[:32*1024])
 }
 
 // Run starts the HTTP and HTTPS reverse proxy servers and handles SIGHUP reloads.
@@ -69,6 +90,7 @@ func Run(opts app.RunOptions) error {
 
 	var activeRoutes atomic.Value
 	activeRoutes.Store(routes)
+	defer closeRouteProxies(activeRoutes.Load().([]routeProxy))
 
 	rw, err := newRotatingWriter(opts.AccessLogPath, app.AccessLogRotateSize)
 	if err != nil {
@@ -126,7 +148,9 @@ func Run(opts app.RunOptions) error {
 				if routesErr != nil {
 					log.Printf("route reload failed: %v", routesErr)
 				} else {
+					oldRoutes := activeRoutes.Load().([]routeProxy)
 					activeRoutes.Store(reloadedRoutes)
+					closeRouteProxies(oldRoutes)
 					log.Printf("proxy routes reloaded successfully: routes=%d", len(reloadedRoutes))
 				}
 			}
@@ -160,6 +184,17 @@ func Run(opts app.RunOptions) error {
 	}()
 
 	return <-errCh
+}
+
+func closeRouteProxies(routes []routeProxy) {
+	for _, route := range routes {
+		if route.proxy == nil || route.proxy.Transport == nil {
+			continue
+		}
+		if closer, ok := route.proxy.Transport.(interface{ CloseIdleConnections() }); ok {
+			closer.CloseIdleConnections()
+		}
+	}
 }
 
 func bootstrapRootRun(opts app.RunOptions) error {
@@ -343,6 +378,7 @@ func buildRouteProxies(cfg *proxycfg.Config) ([]routeProxy, error) {
 		}
 
 		proxy := httputil.NewSingleHostReverseProxy(u)
+		proxy.BufferPool = reverseProxyBufferPool
 		originalDirector := proxy.Director
 		proxy.Director = func(req *http.Request) {
 			originalDirector(req)
