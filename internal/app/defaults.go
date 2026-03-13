@@ -2,9 +2,9 @@ package app
 
 // Base paths used to derive default filesystem locations.
 const (
-	defaultEtcDir            = "/etc/web"
+	defaultEtcDir            = "/etc/webd"
 	defaultRuntimeDir        = "/run/webd"
-	defaultInstallCurrentDir = "/opt/web/current"
+	defaultInstallCurrentDir = "/opt/webd/current"
 	defaultLibexecDir        = defaultInstallCurrentDir + "/libexec"
 )
 
@@ -46,12 +46,12 @@ RuntimeDirectoryMode=0750
 RootDirectory=/run/webd
 RootDirectoryStartOnly=true
 WorkingDirectory=/
-BindReadOnlyPaths=/opt/web/current/libexec/webd
-BindReadOnlyPaths=/opt/web/current/sbin/webctl
+BindReadOnlyPaths=/opt/webd/current/libexec/webd
+BindReadOnlyPaths=/opt/webd/current/sbin/webctl
 BindPaths=/dev/log
-ExecStartPre=/opt/web/current/sbin/webctl reload --prepare-only
-ExecStart=/opt/web/current/libexec/webd
-ExecReload=/opt/web/current/sbin/webctl reload
+ExecStartPre=/opt/webd/current/sbin/webctl reload --prepare-only
+ExecStart=/opt/webd/current/libexec/webd
+ExecReload=/opt/webd/current/sbin/webctl reload
 Restart=on-failure
 
 # Security: grant low-port bind capability at service runtime
