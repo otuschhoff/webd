@@ -203,7 +203,11 @@ func ValidateSourceConfig(instance any) error {
 	if err != nil {
 		return err
 	}
-	if err := rs.Validate(instance); err != nil {
+	normalized, err := normalizeSchemaInstance(instance)
+	if err != nil {
+		return fmt.Errorf("normalize source config for schema validation: %w", err)
+	}
+	if err := rs.Validate(normalized); err != nil {
 		return fmt.Errorf("source config schema validation failed: %w", err)
 	}
 	return nil
@@ -214,10 +218,31 @@ func ValidateRuntimeConfig(instance any) error {
 	if err != nil {
 		return err
 	}
-	if err := rs.Validate(instance); err != nil {
+	normalized, err := normalizeSchemaInstance(instance)
+	if err != nil {
+		return fmt.Errorf("normalize runtime config for schema validation: %w", err)
+	}
+	if err := rs.Validate(normalized); err != nil {
 		return fmt.Errorf("runtime config schema validation failed: %w", err)
 	}
 	return nil
+}
+
+// jsonschema-go validates JSON-typed values. Marshal/unmarshal coerces structs
+// into map/slice/scalar forms accepted by the validator.
+func normalizeSchemaInstance(instance any) (any, error) {
+	if instance == nil {
+		return nil, nil
+	}
+	b, err := json.Marshal(instance)
+	if err != nil {
+		return nil, err
+	}
+	var normalized any
+	if err := json.Unmarshal(b, &normalized); err != nil {
+		return nil, err
+	}
+	return normalized, nil
 }
 
 func sourceResolved() (*gjsonschema.Resolved, error) {
