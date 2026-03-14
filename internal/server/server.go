@@ -85,7 +85,7 @@ func Run(opts RunOptions) error {
 		return fmt.Errorf("route config error: %w", err)
 	}
 	for i, route := range cfg.Routes {
-		opsLog.Printf("route configured index=%d path_prefix=%q target=%s", i, strings.TrimSpace(route.PathPrefix), formatRouteTarget(route))
+		opsLog.Printf("route configured index=%d path=%q target=%s", i, strings.TrimSpace(route.Path), formatRouteTarget(route))
 	}
 
 	var activeRoutes atomic.Value
@@ -251,7 +251,7 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 	routes := make([]routeProxy, 0, len(cfg.Routes))
 
 	for _, r := range cfg.Routes {
-		prefix := strings.TrimSpace(r.PathPrefix)
+		prefix := strings.TrimSpace(r.Path)
 		if prefix == "" {
 			prefix = "/"
 		}
@@ -265,10 +265,10 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			continue
 		}
 
-		if r.Upstream == nil {
-			return nil, fmt.Errorf("route for prefix %q has no upstream", prefix)
+		if r.Handler == nil {
+			return nil, fmt.Errorf("route for path %q has no handler", prefix)
 		}
-		upstreamCfg := *r.Upstream
+		upstreamCfg := *r.Handler
 
 		targetURL := upstreamURL(upstreamCfg)
 		upstream := targetURL.String()
@@ -282,7 +282,7 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 		}
 		transport, transportErr := newStaticUpstreamTransport(upstreamCfg)
 		if transportErr != nil {
-			return nil, fmt.Errorf("configure transport for prefix %q: %w", prefix, transportErr)
+			return nil, fmt.Errorf("configure transport for path %q: %w", prefix, transportErr)
 		}
 		proxy.Transport = transport
 		proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, proxyErr error) {
@@ -391,10 +391,10 @@ func formatRouteTarget(route Route) string {
 	if strings.TrimSpace(route.Redirect) != "" {
 		return "redirect:" + strings.TrimSpace(route.Redirect)
 	}
-	if route.Upstream == nil {
+	if route.Handler == nil {
 		return "<invalid>"
 	}
-	return formatUpstream(*route.Upstream)
+	return formatUpstream(*route.Handler)
 }
 
 func proxyScheme(protocol string) string {

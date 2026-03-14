@@ -31,12 +31,12 @@ type Upstream struct {
 	TrustedCA     *TrustedCA `json:"trusted_ca,omitempty"`
 }
 
-// Route maps a URL path prefix to a decomposed upstream definition for runtime usage.
+// Route maps a URL path prefix to a decomposed handler definition for runtime usage.
 type Route struct {
-	PathPrefix        string      `json:"path_prefix"`
+	Path              string      `json:"path"`
 	AllowedIPv4Ranges []IPv4Range `json:"allowed_ipv4_ranges,omitempty"`
 	Redirect          string      `json:"redirect,omitempty"`
-	Upstream          *Upstream   `json:"upstream,omitempty"`
+	Handler           *Upstream   `json:"handler,omitempty"`
 }
 
 // Config is the runtime JSON configuration consumed by the webd daemon.
@@ -77,30 +77,30 @@ func Validate(cfg *Config) error {
 	}
 
 	for _, r := range cfg.Routes {
-		prefix := strings.TrimSpace(r.PathPrefix)
+		prefix := strings.TrimSpace(r.Path)
 		if prefix == "" {
 			prefix = "/"
 		}
 		if !strings.HasPrefix(prefix, "/") {
-			return fmt.Errorf("path_prefix must begin with '/': %q", prefix)
+			return fmt.Errorf("path must begin with '/': %q", prefix)
 		}
 
 		redirect := strings.TrimSpace(r.Redirect)
 		hasRedirect := redirect != ""
-		hasUpstream := r.Upstream != nil
-		if hasRedirect == hasUpstream {
-			return fmt.Errorf("exactly one of upstream or redirect must be set for prefix %q", prefix)
+		hasHandler := r.Handler != nil
+		if hasRedirect == hasHandler {
+			return fmt.Errorf("exactly one of handler or redirect must be set for path %q", prefix)
 		}
 		if hasRedirect {
 			u, err := url.Parse(redirect)
 			if err != nil || u.Scheme == "" || u.Host == "" {
-				return fmt.Errorf("invalid redirect for prefix %q: %q", prefix, r.Redirect)
+				return fmt.Errorf("invalid redirect for path %q: %q", prefix, r.Redirect)
 			}
 		}
 
 		for _, entry := range r.AllowedIPv4Ranges {
 			if entry.Start > entry.End {
-				return fmt.Errorf("invalid allowed_ipv4_ranges entry for prefix %q: start %d is greater than end %d", prefix, entry.Start, entry.End)
+				return fmt.Errorf("invalid allowed_ipv4_ranges entry for path %q: start %d is greater than end %d", prefix, entry.Start, entry.End)
 			}
 		}
 
@@ -108,35 +108,35 @@ func Validate(cfg *Config) error {
 			continue
 		}
 
-		upstream := r.Upstream
-		protocol := strings.ToLower(strings.TrimSpace(upstream.Protocol))
+		handler := r.Handler
+		protocol := strings.ToLower(strings.TrimSpace(handler.Protocol))
 		if protocol != "http" && protocol != "https" && protocol != "ws" && protocol != "wss" {
-			return fmt.Errorf("invalid upstream protocol for prefix %q: %q", prefix, upstream.Protocol)
+			return fmt.Errorf("invalid handler protocol for path %q: %q", prefix, handler.Protocol)
 		}
-		if strings.TrimSpace(upstream.Hostname) == "" {
-			return fmt.Errorf("upstream hostname is required for prefix %q", prefix)
+		if strings.TrimSpace(handler.Hostname) == "" {
+			return fmt.Errorf("handler hostname is required for path %q", prefix)
 		}
-		if upstream.Port < 1 || upstream.Port > 65535 {
-			return fmt.Errorf("upstream port must be between 1 and 65535 for prefix %q: %d", prefix, upstream.Port)
+		if handler.Port < 1 || handler.Port > 65535 {
+			return fmt.Errorf("handler port must be between 1 and 65535 for path %q: %d", prefix, handler.Port)
 		}
-		if path := strings.TrimSpace(upstream.Path); path != "" && !strings.HasPrefix(path, "/") {
-			return fmt.Errorf("upstream path must begin with '/' for prefix %q: %q", prefix, upstream.Path)
+		if path := strings.TrimSpace(handler.Path); path != "" && !strings.HasPrefix(path, "/") {
+			return fmt.Errorf("handler path must begin with '/' for path %q: %q", prefix, handler.Path)
 		}
-		if len(upstream.IPv4Addresses) == 0 {
-			return fmt.Errorf("upstream ipv4_addresses must contain at least one address for prefix %q", prefix)
+		if len(handler.IPv4Addresses) == 0 {
+			return fmt.Errorf("handler ipv4_addresses must contain at least one address for path %q", prefix)
 		}
-		for _, rawIP := range upstream.IPv4Addresses {
+		for _, rawIP := range handler.IPv4Addresses {
 			ip := net.ParseIP(strings.TrimSpace(rawIP))
 			if ip == nil || ip.To4() == nil {
-				return fmt.Errorf("invalid upstream IPv4 address for prefix %q: %q", prefix, rawIP)
+				return fmt.Errorf("invalid handler IPv4 address for path %q: %q", prefix, rawIP)
 			}
 		}
-		if upstream.TrustedCA != nil {
+		if handler.TrustedCA != nil {
 			if protocol != "https" && protocol != "wss" {
-				return fmt.Errorf("trusted_ca is supported only for https and wss upstreams for prefix %q", prefix)
+				return fmt.Errorf("trusted_ca is supported only for https and wss handlers for path %q", prefix)
 			}
-			if strings.TrimSpace(upstream.TrustedCA.Name) == "" || strings.TrimSpace(upstream.TrustedCA.File) == "" {
-				return fmt.Errorf("trusted_ca name and file are required for prefix %q", prefix)
+			if strings.TrimSpace(handler.TrustedCA.Name) == "" || strings.TrimSpace(handler.TrustedCA.File) == "" {
+				return fmt.Errorf("trusted_ca name and file are required for path %q", prefix)
 			}
 		}
 	}

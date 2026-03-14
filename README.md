@@ -256,10 +256,10 @@ Runtime behavior highlights:
   - `webd-ops` for operational events (startup/load/reload/signal)
   - `webd-access` for per-request access entries
 - TLS cert/key and routes are reloaded in-process on `SIGHUP`.
-- `webctl reload` resolves upstream hostnames and writes runtime config with decomposed upstream targets including `protocol`, `hostname`, `port`, `path`, and `ipv4_addresses`.
+- `webctl reload` resolves handler hostnames and writes runtime config with route `path` plus decomposed `handler` targets including `protocol`, `hostname`, `port`, `path`, and `ipv4_addresses`.
 - `webctl reload` verifies each HTTPS upstream against its configured local trusted CA bundle, extracts the validating intermediate/root certificates when possible, and stages them at `/run/webd/ca-<name>.crt`.
-- `webd` loads only `/run/webd/config.json`, dials the staged IPv4 addresses directly, and does not perform DNS lookups for upstream routing.
-- `webd` uses a staged trusted CA bundle to verify an HTTPS upstream when that upstream declares `trusted_ca`.
+- `webd` loads only `/run/webd/config.json`, dials the staged IPv4 addresses directly, and does not perform DNS lookups for handler routing.
+- `webd` uses a staged trusted CA bundle to verify an HTTPS handler when that handler declares `trusted_ca`.
 - Upstream requests include standard proxy headers such as `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port`, `X-Real-IP`, and `Forwarded`.
 - `webd` accepts no flags/subcommands; control operations are in `webctl`.
 - `webd` requires effective UID in the 500-999 range.
@@ -272,19 +272,19 @@ Server startup (`webd`):
 1. `cmd/webd/main.go:main` creates syslog loggers with `syslogx.New`, rejects flags/subcommands, validates the effective UID range, and verifies the required runtime files under `/run/webd`.
 2. `main` builds `app.RunOptions` and calls `server.Run`.
 3. `internal/server/server.go:Run` creates the daemon loggers, loads the runtime JSON with `LoadJSON`, and validates it through `internal/server/config.go:Validate`.
-4. `Run` builds route handlers with `buildRouteProxies`; upstream routes use `upstreamURL`, `httputil.NewSingleHostReverseProxy`, a wrapped `Director` that calls `setForwardedHeaders`, and `newStaticUpstreamTransport`, while redirect routes keep only a redirect target URL.
-5. `newStaticUpstreamTransport` clones `http.DefaultTransport`, dials only the staged `ipv4_addresses`, and, for HTTPS upstreams, loads the staged CA bundle with `loadTrustedCertPool` and sets `TLSClientConfig.ServerName` to the upstream hostname.
+4. `Run` builds route handlers with `buildRouteProxies`; handler routes use `upstreamURL`, `httputil.NewSingleHostReverseProxy`, a wrapped `Director` that calls `setForwardedHeaders`, and `newStaticUpstreamTransport`, while redirect routes keep only a redirect target URL.
+5. `newStaticUpstreamTransport` clones `http.DefaultTransport`, dials only the staged `ipv4_addresses`, and, for HTTPS handlers, loads the staged CA bundle with `loadTrustedCertPool` and sets `TLSClientConfig.ServerName` to the handler hostname.
 6. `Run` wraps the router with `accessLogMiddleware`, creates the TLS reloader with `newCertReloader`, then starts the cleartext server with `http.Server.ListenAndServe` and the TLS server with `tls.Listen` plus `http.Server.Serve`.
 7. `Run` also installs a `SIGHUP` handler that reloads the runtime config with `LoadJSON`, rebuilds routes with `buildRouteProxies`, swaps them atomically, and refreshes the serving certificate with `certReloader.Reload`.
 
 HTTP request proxying:
 
 1. The per-request handler created inside `internal/server/server.go:Run` reads the current route table from `atomic.Value` and picks the first prefix match, after `buildRouteProxies` sorted routes by descending prefix length.
-2. The matched route either returns `301 Moved Permanently` to its configured `redirect` URL or executes `routeProxy.proxy.ServeHTTP` for upstream proxy routes.
-3. The proxy `Director` first applies the standard upstream rewrite from `httputil.NewSingleHostReverseProxy`, then calls `setForwardedHeaders` to set `X-Real-IP`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port`, and `Forwarded`.
+2. The matched route either returns `301 Moved Permanently` to its configured `redirect` URL or executes `routeProxy.proxy.ServeHTTP` for handler proxy routes.
+3. The proxy `Director` first applies the standard handler rewrite from `httputil.NewSingleHostReverseProxy`, then calls `setForwardedHeaders` to set `X-Real-IP`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port`, and `Forwarded`.
 4. The proxy transport is the `http.RoundTripper` returned by `newStaticUpstreamTransport`; it uses a custom `DialContext` to try the staged IPv4 list in order and connects to `hostname:port` only for TLS verification and URL shaping, not for DNS resolution.
-5. For HTTPS upstreams, the transport verifies the peer certificate against either the system pool or the staged `trusted_ca` bundle loaded by `loadTrustedCertPool`.
-6. Proxy failures are handled by the custom `ErrorHandler` installed in `buildRouteProxies`, which returns `502 Bad Gateway` and logs the upstream/path/error.
+5. For HTTPS handlers, the transport verifies the peer certificate against either the system pool or the staged `trusted_ca` bundle loaded by `loadTrustedCertPool`.
+6. Proxy failures are handled by the custom `ErrorHandler` installed in `buildRouteProxies`, which returns `502 Bad Gateway` and logs the handler/path/error.
 7. The outer `accessLogMiddleware` records the final status, response size, duration, method, URI, and client IP after the proxied request completes.
 
 Control-plane reload (`webctl reload` and `--prepare-only`):
@@ -295,8 +295,8 @@ Control-plane reload (`webctl reload` and `--prepare-only`):
 4. If `PrepareOnly` is false, `Run` locates live daemon PIDs with `findHTTPSDPIDs` and verifies that the configured HTTP/HTTPS listen ports are owned by those processes with `ensurePortsBoundByHTTPSD`.
 5. `Run` stages all runtime artifacts through `stageTLSArtifacts`.
 6. `stageTLSArtifacts` first calls `stageConfigArtifact`, which loads the YAML source config with `internal/cli/config.go:Load`, converts it to runtime JSON with `buildRuntimeConfig`, and writes `/run/webd/config.json` atomically.
-7. `buildRuntimeConfig` translates `allowed_ipv4` entries into numeric `start`/`end` IPv4 ranges for the runtime JSON, emits redirect routes directly, and for upstream routes uses `buildRuntimeUpstream` to resolve `ipv4_addresses` and stage `trusted_ca` runtime files when configured.
-8. `stageTrustedCA` verifies the upstream against the local CA file by calling `fetchVerifiedUpstreamCACerts`; that helper reads the configured PEM bundle, fetches the upstream-presented chain with `fetchUpstreamPeerCertificates`, verifies it with `x509.Certificate.Verify`, optionally extends it with `appendLocalParentChain`, and writes `/run/webd/ca-<name>.crt` with `writeTrustedCAFile`.
+7. `buildRuntimeConfig` translates `allowed_ipv4` entries into numeric `start`/`end` IPv4 ranges for the runtime JSON, emits redirect routes directly, and for handler routes uses `buildRuntimeUpstream` to resolve `ipv4_addresses` and stage `trusted_ca` runtime files when configured.
+8. `stageTrustedCA` verifies the handler against the local CA file by calling `fetchVerifiedUpstreamCACerts`; that helper reads the configured PEM bundle, fetches the handler-presented chain with `fetchUpstreamPeerCertificates`, verifies it with `x509.Certificate.Verify`, optionally extends it with `appendLocalParentChain`, and writes `/run/webd/ca-<name>.crt` with `writeTrustedCAFile`.
 9. After the runtime JSON is staged, `stageTLSArtifacts` validates the configured server certificate chain order with `validateTLSBundleOrder`, then copies the TLS certificate and key into `/run/webd/tls.crt` and `/run/webd/tls.key` with `copyFileAtomic` and fixes ownership.
 10. If `PrepareOnly` is true, `Run` stops here after logging `prepare-only mode complete`; no process discovery or signal delivery happens.
 11. Otherwise, `Run` sends `SIGHUP` to each discovered daemon PID with `syscall.Kill`, which triggers the in-process reload path in `internal/server/server.go:Run`.

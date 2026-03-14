@@ -281,7 +281,7 @@ func buildRuntimeConfig(cfg *Config, uid, gid int) (*server.Config, error) {
 
 		if strings.TrimSpace(route.Redirect) != "" {
 			resolved.Routes = append(resolved.Routes, server.Route{
-				PathPrefix:        route.Path,
+				Path:              route.Path,
 				AllowedIPv4Ranges: allowedIPv4Ranges,
 				Redirect:          strings.TrimSpace(route.Redirect),
 			})
@@ -293,9 +293,9 @@ func buildRuntimeConfig(cfg *Config, uid, gid int) (*server.Config, error) {
 			return nil, fmt.Errorf("route path=%q handler=%q: %w", route.Path, route.Handler, err)
 		}
 		resolved.Routes = append(resolved.Routes, server.Route{
-			PathPrefix:        route.Path,
+			Path:              route.Path,
 			AllowedIPv4Ranges: allowedIPv4Ranges,
-			Upstream:          &upstream,
+			Handler:           &upstream,
 		})
 	}
 	return resolved, nil

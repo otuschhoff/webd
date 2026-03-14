@@ -88,9 +88,9 @@ const runtimeConfigSchemaJSON = `{
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["path_prefix"],
+        "required": ["path"],
         "properties": {
-          "path_prefix": {
+          "path": {
             "type": "string",
             "pattern": "^(/.*)?$"
           },
@@ -118,7 +118,7 @@ const runtimeConfigSchemaJSON = `{
             "type": "string",
             "pattern": "^[A-Za-z][A-Za-z0-9+.-]*://.+"
           },
-          "upstream": {
+          "handler": {
             "type": "object",
             "additionalProperties": false,
             "required": ["protocol", "hostname", "port", "ipv4_addresses"],
@@ -171,7 +171,7 @@ const runtimeConfigSchemaJSON = `{
         },
         "oneOf": [
           {
-            "required": ["upstream"],
+            "required": ["handler"],
             "not": {
               "required": ["redirect"]
             }
@@ -179,7 +179,7 @@ const runtimeConfigSchemaJSON = `{
           {
             "required": ["redirect"],
             "not": {
-              "required": ["upstream"]
+              "required": ["handler"]
             }
           }
         ]
