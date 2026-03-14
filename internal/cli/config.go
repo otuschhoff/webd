@@ -19,18 +19,18 @@ type TrustedCA struct {
 	CertPath string `yaml:"cert_path" json:"cert_path"`
 }
 
-// Route maps a URL path prefix to an upstream base URL.
+// Route maps a URL path prefix to a handler base URL.
 type Route struct {
-	// PathPrefix is matched against the incoming request path.
-	PathPrefix string `yaml:"path_prefix" json:"path_prefix"`
-	// Upstream is the absolute HTTP/HTTPS/WS/WSS upstream base URL.
-	Upstream string `yaml:"upstream,omitempty" json:"upstream,omitempty"`
+	// Path is matched against the incoming request path.
+	Path string `yaml:"path" json:"path"`
+	// Handler is the absolute HTTP/HTTPS/WS/WSS handler base URL.
+	Handler string `yaml:"handler,omitempty" json:"handler,omitempty"`
 	// Redirect is an absolute URL for HTTP 301 redirects when this route matches.
-	// Exactly one of Upstream or Redirect must be set.
+	// Exactly one of Handler or Redirect must be set.
 	Redirect string `yaml:"redirect,omitempty" json:"redirect,omitempty"`
 	// AllowedIPv4 optionally restricts this route to specific IPv4 addresses, ranges, and/or CIDRs.
 	AllowedIPv4 []string `yaml:"allowed_ipv4,omitempty" json:"allowed_ipv4,omitempty"`
-	// TrustedCA identifies a PEM CA bundle that should verify this upstream TLS server.
+	// TrustedCA identifies a PEM CA bundle that should verify this handler TLS server.
 	TrustedCA *TrustedCA `yaml:"trusted_ca,omitempty" json:"trusted_ca,omitempty"`
 }
 
@@ -98,62 +98,62 @@ func Validate(cfg *Config) error {
 	}
 
 	for _, r := range cfg.Routes {
-		prefix := strings.TrimSpace(r.PathPrefix)
+		prefix := strings.TrimSpace(r.Path)
 		if prefix == "" {
 			prefix = "/"
 		}
 		if !strings.HasPrefix(prefix, "/") {
-			return fmt.Errorf("path_prefix must begin with '/': %q", prefix)
+			return fmt.Errorf("path must begin with '/': %q", prefix)
 		}
 
-		upstreamRaw := strings.TrimSpace(r.Upstream)
+		handlerRaw := strings.TrimSpace(r.Handler)
 		redirectRaw := strings.TrimSpace(r.Redirect)
-		hasUpstream := upstreamRaw != ""
+		hasHandler := handlerRaw != ""
 		hasRedirect := redirectRaw != ""
-		if hasUpstream == hasRedirect {
-			return fmt.Errorf("exactly one of upstream or redirect must be set for prefix %q", prefix)
+		if hasHandler == hasRedirect {
+			return fmt.Errorf("exactly one of handler or redirect must be set for path %q", prefix)
 		}
 
 		scheme := ""
-		if hasUpstream {
-			u, err := url.Parse(upstreamRaw)
+		if hasHandler {
+			u, err := url.Parse(handlerRaw)
 			if err != nil || u.Scheme == "" || u.Host == "" {
-				return fmt.Errorf("invalid upstream for prefix %q: %q", prefix, r.Upstream)
+				return fmt.Errorf("invalid handler for path %q: %q", prefix, r.Handler)
 			}
 			scheme = strings.ToLower(strings.TrimSpace(u.Scheme))
 			if scheme != "http" && scheme != "https" && scheme != "ws" && scheme != "wss" {
-				return fmt.Errorf("invalid upstream scheme for prefix %q: %q", prefix, r.Upstream)
+				return fmt.Errorf("invalid handler scheme for path %q: %q", prefix, r.Handler)
 			}
 		}
 		if hasRedirect {
 			u, err := url.Parse(redirectRaw)
 			if err != nil || u.Scheme == "" || u.Host == "" {
-				return fmt.Errorf("invalid redirect for prefix %q: %q", prefix, r.Redirect)
+				return fmt.Errorf("invalid redirect for path %q: %q", prefix, r.Redirect)
 			}
 		}
 
 		for _, raw := range r.AllowedIPv4 {
 			if err := validateAllowedIPv4Entry(raw); err != nil {
-				return fmt.Errorf("invalid allowed_ipv4 for prefix %q: %w", prefix, err)
+				return fmt.Errorf("invalid allowed_ipv4 for path %q: %w", prefix, err)
 			}
 		}
 
 		if r.TrustedCA != nil {
 			if hasRedirect {
-				return fmt.Errorf("trusted_ca cannot be used with redirect for prefix %q", prefix)
+				return fmt.Errorf("trusted_ca cannot be used with redirect for path %q", prefix)
 			}
 			caName := strings.TrimSpace(r.TrustedCA.Name)
 			if caName == "" {
-				return fmt.Errorf("trusted_ca.name is required for prefix %q", prefix)
+				return fmt.Errorf("trusted_ca.name is required for path %q", prefix)
 			}
 			if !isTrustedCAName(caName) {
-				return fmt.Errorf("trusted_ca.name must contain only letters, digits, dot, dash, or underscore for prefix %q: %q", prefix, caName)
+				return fmt.Errorf("trusted_ca.name must contain only letters, digits, dot, dash, or underscore for path %q: %q", prefix, caName)
 			}
 			if strings.TrimSpace(r.TrustedCA.CertPath) == "" {
-				return fmt.Errorf("trusted_ca.cert_path is required for prefix %q", prefix)
+				return fmt.Errorf("trusted_ca.cert_path is required for path %q", prefix)
 			}
 			if scheme != "https" && scheme != "wss" {
-				return fmt.Errorf("trusted_ca is supported only for https and wss upstreams for prefix %q", prefix)
+				return fmt.Errorf("trusted_ca is supported only for https and wss handlers for path %q", prefix)
 			}
 		}
 	}

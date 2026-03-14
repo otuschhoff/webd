@@ -57,12 +57,12 @@ func runCheck(opts server.RunOptions) error {
 		checkErrs = append(checkErrs, result.failLines...)
 	}
 
-	fmt.Println("-- upstream reachability --")
-	upstreamResults := checkUpstreams(cfg)
-	for _, line := range upstreamResults.okLines {
+	fmt.Println("-- handler reachability --")
+	handlerResults := checkUpstreams(cfg)
+	for _, line := range handlerResults.okLines {
 		fmt.Println(line)
 	}
-	checkErrs = append(checkErrs, upstreamResults.failLines...)
+	checkErrs = append(checkErrs, handlerResults.failLines...)
 
 	fmt.Println("-- tls validation --")
 	tlsResults := checkTLSMaterials(opts.TLSCertPath, opts.TLSKeyPath)
@@ -110,7 +110,7 @@ func checkUpstreams(cfg *Config) checkResult {
 	result := checkResult{}
 
 	for _, route := range cfg.Routes {
-		raw := strings.TrimSpace(route.Upstream)
+		raw := strings.TrimSpace(route.Handler)
 		if raw == "" {
 			continue
 		}
@@ -148,7 +148,7 @@ func checkUpstreams(cfg *Config) checkResult {
 				continue
 			}
 			_ = conn.Close()
-			result.okLines = append(result.okLines, fmt.Sprintf("upstream %s: TCP handshake OK", raw))
+			result.okLines = append(result.okLines, fmt.Sprintf("handler %s: TCP handshake OK", raw))
 		case "https", "wss":
 			dialer := &net.Dialer{Timeout: 4 * time.Second}
 			tlsConfig := &tls.Config{InsecureSkipVerify: true}
@@ -166,7 +166,7 @@ func checkUpstreams(cfg *Config) checkResult {
 				continue
 			}
 			_ = conn.Close()
-			result.okLines = append(result.okLines, fmt.Sprintf("upstream %s: TLS handshake OK", raw))
+			result.okLines = append(result.okLines, fmt.Sprintf("handler %s: TLS handshake OK", raw))
 		default:
 			result.failLines = append(result.failLines, fmt.Sprintf("%s unsupported scheme %q", raw, u.Scheme))
 		}

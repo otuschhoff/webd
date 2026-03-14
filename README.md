@@ -63,40 +63,40 @@ Example (`config.example.yaml`):
 
 ```yaml
 routes:
-  - path_prefix: /api/
-    upstream: http://127.0.0.1:8080/api/v1/
+  - path: /api/
+    handler: http://127.0.0.1:8080/api/v1/
     allowed_ipv4:
       - 127.0.0.1
       - 10.0.0.0/8
       - 192.0.2.10-192.0.2.50
-  - path_prefix: /internal/
-    upstream: https://api.internal.example.com/v1/
+  - path: /internal/
+    handler: https://api.internal.example.com/v1/
     trusted_ca:
       name: internal-api
       cert_path: /etc/pki/ca-trust/source/anchors/internal-api.crt
-  - path_prefix: /websocket/
-    upstream: wss://server.eu.example.com:9000/websocket/
-  - path_prefix: /legacy/
+  - path: /websocket/
+    handler: wss://server.eu.example.com:9000/websocket/
+  - path: /legacy/
     redirect: https://www.example.com/new-home/
-  - path_prefix: /
-    upstream: http://127.0.0.1:3000
+  - path: /
+    handler: http://127.0.0.1:3000
 ```
 
 Rules:
 
 - `routes` must contain at least one entry.
-- `path_prefix` must begin with `/` (empty is treated as `/`).
-- Each route must set exactly one of `upstream` or `redirect`.
-- `upstream` must be a valid absolute URL.
+- `path` must begin with `/` (empty is treated as `/`).
+- Each route must set exactly one of `handler` or `redirect`.
+- `handler` must be a valid absolute URL.
 - `redirect` must be a valid absolute URL and returns `301 Moved Permanently`.
-- Supported upstream schemes are `http`, `https`, `ws`, and `wss`.
+- Supported handler schemes are `http`, `https`, `ws`, and `wss`.
 - `allowed_ipv4` is optional and can include IPv4 addresses, IPv4 ranges (`start-end`), and IPv4 CIDRs.
 - If a request matches a route prefix with `allowed_ipv4` and the client IPv4 is not in the allow-list, `webd` returns `403 Forbidden` for that route.
-- `trusted_ca` is optional and supported only for `https` and `wss` upstreams.
+- `trusted_ca` is optional and supported only for `https` and `wss` handlers.
 - `trusted_ca` cannot be used with `redirect` routes.
 - `trusted_ca.name` may contain only letters, digits, `.`, `_`, and `-`.
 - `trusted_ca.cert_path` must point to a PEM CA bundle that `webctl reload` can read.
-- Longest `path_prefix` wins.
+- Longest `path` wins.
 
 Config examples:
 
@@ -104,98 +104,98 @@ Simple catch-all route:
 
 ```yaml
 routes:
-  - path_prefix: /
-    upstream: http://127.0.0.1:3000
+  - path: /
+    handler: http://127.0.0.1:3000
 ```
 
 Specific API route plus fallback frontend:
 
 ```yaml
 routes:
-  - path_prefix: /api/
-    upstream: http://127.0.0.1:8080/api/v1/
+  - path: /api/
+    handler: http://127.0.0.1:8080/api/v1/
 
-  - path_prefix: /
-    upstream: http://127.0.0.1:3000
+  - path: /
+    handler: http://127.0.0.1:3000
 ```
 
 HTTPS upstream with a pinned trusted CA bundle:
 
 ```yaml
 routes:
-  - path_prefix: /internal/
-    upstream: https://api.internal.example.com/v1/
+  - path: /internal/
+    handler: https://api.internal.example.com/v1/
     trusted_ca:
       name: internal-api
       cert_path: /etc/pki/ca-trust/source/anchors/internal-api.crt
 
-  - path_prefix: /
-    upstream: http://127.0.0.1:3000
+  - path: /
+    handler: http://127.0.0.1:3000
 ```
 
 WebSocket upstream over TLS:
 
 ```yaml
 routes:
-  - path_prefix: /websocket/
-    upstream: wss://server.eu.example.com:9000/websocket/
+  - path: /websocket/
+    handler: wss://server.eu.example.com:9000/websocket/
 
-  - path_prefix: /
-    upstream: http://127.0.0.1:3000
+  - path: /
+    handler: http://127.0.0.1:3000
 ```
 
 WebSocket upstream with a pinned trusted CA bundle:
 
 ```yaml
 routes:
-  - path_prefix: /websocket/
-    upstream: wss://server.eu.example.com:9000/websocket/
+  - path: /websocket/
+    handler: wss://server.eu.example.com:9000/websocket/
     trusted_ca:
       name: server-ws
       cert_path: /etc/pki/ca-trust/source/anchors/server-ws.crt
 
-  - path_prefix: /
-    upstream: http://127.0.0.1:3000
+  - path: /
+    handler: http://127.0.0.1:3000
 ```
 
 Restrict a route to localhost and an internal subnet:
 
 ```yaml
 routes:
-  - path_prefix: /admin/
-    upstream: http://127.0.0.1:9000/
+  - path: /admin/
+    handler: http://127.0.0.1:9000/
     allowed_ipv4:
       - 127.0.0.1
       - 10.0.0.0/8
 
-  - path_prefix: /
-    upstream: http://127.0.0.1:3000
+  - path: /
+    handler: http://127.0.0.1:3000
 ```
 
 Restrict a route to explicit IPv4 addresses and a range:
 
 ```yaml
 routes:
-  - path_prefix: /url-sub-path/
-    upstream: http://127.0.0.1:9100/
+  - path: /url-sub-path/
+    handler: http://127.0.0.1:9100/
     allowed_ipv4:
       - 198.51.100.10
       - 198.51.100.11
       - 198.51.100.20-198.51.100.30
 
-  - path_prefix: /
-    upstream: http://127.0.0.1:3000
+  - path: /
+    handler: http://127.0.0.1:3000
 ```
 
 Permanent redirect route:
 
 ```yaml
 routes:
-  - path_prefix: /old-docs/
+  - path: /old-docs/
     redirect: https://docs.example.com/new-location/
 
-  - path_prefix: /
-    upstream: http://127.0.0.1:3000
+  - path: /
+    handler: http://127.0.0.1:3000
 ```
 
 TLS notes:

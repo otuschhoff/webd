@@ -20,13 +20,13 @@ const sourceConfigSchemaJSON = `{
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["path_prefix"],
+        "required": ["path"],
         "properties": {
-          "path_prefix": {
+          "path": {
             "type": "string",
             "pattern": "^(/.*)?$"
           },
-          "upstream": {
+          "handler": {
             "type": "string",
             "pattern": "^[A-Za-z][A-Za-z0-9+.-]*://.+"
           },
@@ -59,7 +59,7 @@ const sourceConfigSchemaJSON = `{
         },
         "oneOf": [
           {
-            "required": ["upstream"],
+            "required": ["handler"],
             "not": {
               "required": ["redirect"]
             }
@@ -67,7 +67,7 @@ const sourceConfigSchemaJSON = `{
           {
             "required": ["redirect"],
             "not": {
-              "required": ["upstream"]
+              "required": ["handler"]
             }
           }
         ]

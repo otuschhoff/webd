@@ -18,14 +18,14 @@ import (
 	"webd/internal/app"
 )
 
-const defaultConfigYAML = `# Routes are matched by longest path_prefix first.
+const defaultConfigYAML = `# Routes are matched by longest path first.
 routes:
-  - path_prefix: /api/
-    upstream: http://127.0.0.1:8080/api/v1/
+	- path: /api/
+		handler: http://127.0.0.1:8080/api/v1/
 
   # Fallback route for all other traffic.
-  - path_prefix: /
-    upstream: http://127.0.0.1:3000
+	- path: /
+		handler: http://127.0.0.1:3000
 `
 
 type passwdEntry struct {

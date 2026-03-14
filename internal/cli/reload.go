@@ -276,12 +276,12 @@ func buildRuntimeConfig(cfg *Config, uid, gid int) (*server.Config, error) {
 	for _, route := range cfg.Routes {
 		allowedIPv4Ranges, err := translateAllowedIPv4(route.AllowedIPv4)
 		if err != nil {
-			return nil, fmt.Errorf("route path_prefix=%q allowed_ipv4: %w", route.PathPrefix, err)
+			return nil, fmt.Errorf("route path=%q allowed_ipv4: %w", route.Path, err)
 		}
 
 		if strings.TrimSpace(route.Redirect) != "" {
 			resolved.Routes = append(resolved.Routes, server.Route{
-				PathPrefix:        route.PathPrefix,
+				PathPrefix:        route.Path,
 				AllowedIPv4Ranges: allowedIPv4Ranges,
 				Redirect:          strings.TrimSpace(route.Redirect),
 			})
@@ -290,10 +290,10 @@ func buildRuntimeConfig(cfg *Config, uid, gid int) (*server.Config, error) {
 
 		upstream, err := buildRuntimeUpstream(route, uid, gid, stagedCAs)
 		if err != nil {
-			return nil, fmt.Errorf("route path_prefix=%q upstream=%q: %w", route.PathPrefix, route.Upstream, err)
+			return nil, fmt.Errorf("route path=%q handler=%q: %w", route.Path, route.Handler, err)
 		}
 		resolved.Routes = append(resolved.Routes, server.Route{
-			PathPrefix:        route.PathPrefix,
+			PathPrefix:        route.Path,
 			AllowedIPv4Ranges: allowedIPv4Ranges,
 			Upstream:          &upstream,
 		})
@@ -309,9 +309,9 @@ type stagedTrustedCA struct {
 }
 
 func buildRuntimeUpstream(route Route, uid, gid int, stagedCAs map[string]*stagedTrustedCA) (server.Upstream, error) {
-	u, err := url.Parse(route.Upstream)
+	u, err := url.Parse(route.Handler)
 	if err != nil || u.Scheme == "" || u.Host == "" {
-		return server.Upstream{}, fmt.Errorf("invalid upstream URL")
+		return server.Upstream{}, fmt.Errorf("invalid handler URL")
 	}
 
 	protocol := strings.ToLower(u.Scheme)

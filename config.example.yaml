@@ -1,9 +1,9 @@
-# Route evaluation is prefix-based and the longest matching prefix wins.
+# Route evaluation is prefix-based and the longest matching path wins.
 # Keep more specific routes (like /api/) alongside a final catch-all / route.
 routes:
   # Requests beginning with /api/ are proxied to backend API v1 paths.
-  - path_prefix: /api/
-    upstream: http://127.0.0.1:8080/api/v1/
+  - path: /api/
+    handler: http://127.0.0.1:8080/api/v1/
     # Optional IPv4 client allow-list for this route. Supports:
     # - single IPv4: 192.0.2.10
     # - range: 192.0.2.10-192.0.2.50
@@ -13,24 +13,24 @@ routes:
       - 10.0.0.0/8
 
   # Example HTTPS upstream with a custom trusted CA bundle.
-  # - path_prefix: /internal/
-  #   upstream: https://api.internal.example.com/v1/
+  # - path: /internal/
+  #   handler: https://api.internal.example.com/v1/
   #   trusted_ca:
   #     name: internal-api
   #     cert_path: /etc/pki/ca-trust/source/anchors/internal-api.crt
 
   # Example WebSocket upstream over TLS.
-  # - path_prefix: /websocket/
-  #   upstream: wss://server.eu.example.com:9000/websocket/
+  # - path: /websocket/
+  #   handler: wss://server.eu.example.com:9000/websocket/
   #   trusted_ca:
   #     name: server-ws
   #     cert_path: /etc/pki/ca-trust/source/anchors/server-ws.crt
 
   # Example permanent redirect route.
-  # Exactly one of upstream or redirect must be set per route.
-  # - path_prefix: /legacy/
+  # Exactly one of handler or redirect must be set per route.
+  # - path: /legacy/
   #   redirect: https://www.example.com/new-home/
 
   # Fallback for everything else.
-  - path_prefix: /
-    upstream: http://127.0.0.1:3000
+  - path: /
+    handler: http://127.0.0.1:3000
