@@ -21,7 +21,7 @@ type TrustedCA struct {
 	File string `json:"file"`
 }
 
-type Upstream struct {
+type Handler struct {
 	Protocol      string     `json:"protocol"`
 	Hostname      string     `json:"hostname"`
 	Port          int        `json:"port"`
@@ -36,7 +36,7 @@ type Route struct {
 	Path              string      `json:"path"`
 	AllowedIPv4Ranges []IPv4Range `json:"allowed_ipv4_ranges,omitempty"`
 	Redirect          string      `json:"redirect,omitempty"`
-	Handler           *Upstream   `json:"handler,omitempty"`
+	Handler           *Handler    `json:"handler,omitempty"`
 }
 
 // Config is the runtime JSON configuration consumed by the webd daemon.

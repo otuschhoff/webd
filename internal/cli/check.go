@@ -58,7 +58,7 @@ func runCheck(opts server.RunOptions) error {
 	}
 
 	fmt.Println("-- handler reachability --")
-	handlerResults := checkUpstreams(cfg)
+	handlerResults := checkHandlers(cfg)
 	for _, line := range handlerResults.okLines {
 		fmt.Println(line)
 	}
@@ -105,7 +105,7 @@ func checkBindPort(label, addr string) checkResult {
 	return checkResult{failLines: failLines}
 }
 
-func checkUpstreams(cfg *Config) checkResult {
+func checkHandlers(cfg *Config) checkResult {
 	seen := make(map[string]struct{})
 	result := checkResult{}
 

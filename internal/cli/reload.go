@@ -288,14 +288,14 @@ func buildRuntimeConfig(cfg *Config, uid, gid int) (*server.Config, error) {
 			continue
 		}
 
-		upstream, err := buildRuntimeUpstream(route, uid, gid, stagedCAs)
+		handler, err := buildRuntimeHandler(route, uid, gid, stagedCAs)
 		if err != nil {
 			return nil, fmt.Errorf("route path=%q handler=%q: %w", route.Path, route.Handler, err)
 		}
 		resolved.Routes = append(resolved.Routes, server.Route{
 			Path:              route.Path,
 			AllowedIPv4Ranges: allowedIPv4Ranges,
-			Handler:           &upstream,
+			Handler:           &handler,
 		})
 	}
 	return resolved, nil
@@ -308,10 +308,10 @@ type stagedTrustedCA struct {
 	pemBlocks  [][]byte
 }
 
-func buildRuntimeUpstream(route Route, uid, gid int, stagedCAs map[string]*stagedTrustedCA) (server.Upstream, error) {
+func buildRuntimeHandler(route Route, uid, gid int, stagedCAs map[string]*stagedTrustedCA) (server.Handler, error) {
 	u, err := url.Parse(route.Handler)
 	if err != nil || u.Scheme == "" || u.Host == "" {
-		return server.Upstream{}, fmt.Errorf("invalid handler URL")
+		return server.Handler{}, fmt.Errorf("invalid handler URL")
 	}
 
 	protocol := strings.ToLower(u.Scheme)
@@ -326,23 +326,23 @@ func buildRuntimeUpstream(route Route, uid, gid int, stagedCAs map[string]*stage
 		case "wss":
 			port = "443"
 		default:
-			return server.Upstream{}, fmt.Errorf("unsupported scheme %q", u.Scheme)
+			return server.Handler{}, fmt.Errorf("unsupported scheme %q", u.Scheme)
 		}
 	}
 
 	portNum, err := strconv.Atoi(port)
 	if err != nil {
-		return server.Upstream{}, fmt.Errorf("invalid port %q: %w", port, err)
+		return server.Handler{}, fmt.Errorf("invalid port %q: %w", port, err)
 	}
 
 	resolvedIPs, err := lookupIPv4Addresses(hostname)
 	if err != nil {
-		return server.Upstream{}, err
+		return server.Handler{}, err
 	}
 
 	var trustedCA *server.TrustedCA
 	if route.TrustedCA != nil {
-		trustedCA, err = stageTrustedCA(route.TrustedCA, server.Upstream{
+		trustedCA, err = stageTrustedCA(route.TrustedCA, server.Handler{
 			Protocol:      protocol,
 			Hostname:      hostname,
 			Port:          portNum,
@@ -351,11 +351,11 @@ func buildRuntimeUpstream(route Route, uid, gid int, stagedCAs map[string]*stage
 			IPv4Addresses: resolvedIPs,
 		}, uid, gid, stagedCAs)
 		if err != nil {
-			return server.Upstream{}, err
+			return server.Handler{}, err
 		}
 	}
 
-	return server.Upstream{
+	return server.Handler{
 		Protocol:      protocol,
 		Hostname:      hostname,
 		Port:          portNum,
@@ -370,7 +370,7 @@ func lookupIPv4Addresses(hostname string) ([]string, error) {
 	if ip := net.ParseIP(hostname); ip != nil {
 		v4 := ip.To4()
 		if v4 == nil {
-			return nil, fmt.Errorf("upstream host %q is not IPv4", hostname)
+			return nil, fmt.Errorf("handler host %q is not IPv4", hostname)
 		}
 		return []string{v4.String()}, nil
 	}
@@ -400,7 +400,7 @@ func lookupIPv4Addresses(hostname string) ([]string, error) {
 	return v4s, nil
 }
 
-func stageTrustedCA(trustedCA *TrustedCA, upstream server.Upstream, uid, gid int, stagedCAs map[string]*stagedTrustedCA) (*server.TrustedCA, error) {
+func stageTrustedCA(trustedCA *TrustedCA, handler server.Handler, uid, gid int, stagedCAs map[string]*stagedTrustedCA) (*server.TrustedCA, error) {
 	if trustedCA == nil {
 		return nil, nil
 	}
@@ -420,7 +420,7 @@ func stageTrustedCA(trustedCA *TrustedCA, upstream server.Upstream, uid, gid int
 		return nil, err
 	}
 
-	caCerts, err := fetchVerifiedUpstreamCACerts(upstream, sourcePath)
+	caCerts, err := fetchVerifiedHandlerCACerts(handler, sourcePath)
 	if err != nil {
 		return nil, err
 	}
@@ -464,7 +464,7 @@ func ensureRuntimeTrustedCADir(uid, gid int) error {
 	return nil
 }
 
-func fetchVerifiedUpstreamCACerts(upstream server.Upstream, sourcePath string) ([]*x509.Certificate, error) {
+func fetchVerifiedHandlerCACerts(handler server.Handler, sourcePath string) ([]*x509.Certificate, error) {
 	localPEM, err := os.ReadFile(sourcePath)
 	if err != nil {
 		return nil, fmt.Errorf("read trusted_ca %s: %w", sourcePath, err)
@@ -474,12 +474,12 @@ func fetchVerifiedUpstreamCACerts(upstream server.Upstream, sourcePath string) (
 		return nil, fmt.Errorf("parse trusted_ca %s: %w", sourcePath, err)
 	}
 
-	peerCerts, err := fetchUpstreamPeerCertificates(upstream)
+	peerCerts, err := fetchHandlerPeerCertificates(handler)
 	if err != nil {
 		return nil, err
 	}
 	if len(peerCerts) == 0 {
-		return nil, fmt.Errorf("upstream %s presented no TLS certificates", formatRuntimeUpstream(upstream))
+		return nil, fmt.Errorf("handler %s presented no TLS certificates", formatRuntimeHandler(handler))
 	}
 
 	roots := x509.NewCertPool()
@@ -495,17 +495,17 @@ func fetchVerifiedUpstreamCACerts(upstream server.Upstream, sourcePath string) (
 	}
 
 	verifiedChains, err := peerCerts[0].Verify(x509.VerifyOptions{
-		DNSName:       upstream.Hostname,
+		DNSName:       handler.Hostname,
 		Roots:         roots,
 		Intermediates: intermediates,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("verify upstream %s against trusted_ca %s: %w", formatRuntimeUpstream(upstream), sourcePath, err)
+		return nil, fmt.Errorf("verify handler %s against trusted_ca %s: %w", formatRuntimeHandler(handler), sourcePath, err)
 	}
 
 	chain := longestVerifiedChain(verifiedChains)
 	if len(chain) == 0 {
-		return nil, fmt.Errorf("no verified certificate chain found for upstream %s", formatRuntimeUpstream(upstream))
+		return nil, fmt.Errorf("no verified certificate chain found for handler %s", formatRuntimeHandler(handler))
 	}
 	chain = appendLocalParentChain(chain, localCerts)
 
@@ -516,22 +516,22 @@ func fetchVerifiedUpstreamCACerts(upstream server.Upstream, sourcePath string) (
 		}
 	}
 	if len(caCerts) == 0 {
-		return nil, fmt.Errorf("no validating CA certificates found for upstream %s", formatRuntimeUpstream(upstream))
+		return nil, fmt.Errorf("no validating CA certificates found for handler %s", formatRuntimeHandler(handler))
 	}
 	return caCerts, nil
 }
 
-func fetchUpstreamPeerCertificates(upstream server.Upstream) ([]*x509.Certificate, error) {
+func fetchHandlerPeerCertificates(handler server.Handler) ([]*x509.Certificate, error) {
 	dialer := &net.Dialer{Timeout: 5 * time.Second}
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true,
-		ServerName:         upstream.Hostname,
+		ServerName:         handler.Hostname,
 		MinVersion:         tls.VersionTLS12,
 	}
 
 	var errs []string
-	for _, rawIP := range upstream.IPv4Addresses {
-		addr := net.JoinHostPort(rawIP, strconv.Itoa(upstream.Port))
+	for _, rawIP := range handler.IPv4Addresses {
+		addr := net.JoinHostPort(rawIP, strconv.Itoa(handler.Port))
 		conn, err := tls.DialWithDialer(dialer, "tcp", addr, tlsConfig)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", rawIP, err))
@@ -541,15 +541,15 @@ func fetchUpstreamPeerCertificates(upstream server.Upstream) ([]*x509.Certificat
 		_ = conn.Close()
 		return state.PeerCertificates, nil
 	}
-	return nil, fmt.Errorf("fetch upstream TLS certificates for %s failed: %s", formatRuntimeUpstream(upstream), strings.Join(errs, "; "))
+	return nil, fmt.Errorf("fetch handler TLS certificates for %s failed: %s", formatRuntimeHandler(handler), strings.Join(errs, "; "))
 }
 
-func formatRuntimeUpstream(upstream server.Upstream) string {
+func formatRuntimeHandler(handler server.Handler) string {
 	return (&url.URL{
-		Scheme:   upstream.Protocol,
-		Host:     net.JoinHostPort(upstream.Hostname, strconv.Itoa(upstream.Port)),
-		Path:     upstream.Path,
-		RawQuery: upstream.RawQuery,
+		Scheme:   handler.Protocol,
+		Host:     net.JoinHostPort(handler.Hostname, strconv.Itoa(handler.Port)),
+		Path:     handler.Path,
+		RawQuery: handler.RawQuery,
 	}).String()
 }
 

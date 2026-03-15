@@ -12,14 +12,14 @@ routes:
       - 127.0.0.1
       - 10.0.0.0/8
 
-  # Example HTTPS upstream with a custom trusted CA bundle.
+  # Example HTTPS handler with a custom trusted CA bundle.
   # - path: /internal/
   #   handler: https://api.internal.example.com/v1/
   #   trusted_ca:
   #     name: internal-api
   #     cert_path: /etc/pki/ca-trust/source/anchors/internal-api.crt
 
-  # Example WebSocket upstream over TLS.
+  # Example WebSocket handler over TLS.
   # - path: /websocket/
   #   handler: wss://server.eu.example.com:9000/websocket/
   #   trusted_ca:

@@ -268,10 +268,10 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 		if r.Handler == nil {
 			return nil, fmt.Errorf("route for path %q has no handler", prefix)
 		}
-		upstreamCfg := *r.Handler
+		handlerCfg := *r.Handler
 
-		targetURL := upstreamURL(upstreamCfg)
-		upstream := targetURL.String()
+		targetURL := handlerURL(handlerCfg)
+		handler := targetURL.String()
 
 		proxy := httputil.NewSingleHostReverseProxy(targetURL)
 		proxy.BufferPool = reverseProxyBufferPool
@@ -280,14 +280,14 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			originalDirector(req)
 			setForwardedHeaders(req)
 		}
-		transport, transportErr := newStaticUpstreamTransport(upstreamCfg)
+		transport, transportErr := newStaticHandlerTransport(handlerCfg)
 		if transportErr != nil {
 			return nil, fmt.Errorf("configure transport for path %q: %w", prefix, transportErr)
 		}
 		proxy.Transport = transport
 		proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, proxyErr error) {
 			http.Error(w, "Bad Gateway", http.StatusBadGateway)
-			errLog.Printf("proxy_error upstream=%q path=%q err=%v", upstream, req.URL.Path, proxyErr)
+			errLog.Printf("proxy_error handler=%q path=%q err=%v", handler, req.URL.Path, proxyErr)
 		}
 
 		routes = append(routes, routeProxy{prefix: prefix, proxy: proxy, allowedIPv4Ranges: append([]IPv4Range(nil), r.AllowedIPv4Ranges...)})
@@ -318,7 +318,7 @@ func isClientIPv4Allowed(rawIP string, ranges []IPv4Range) bool {
 	return false
 }
 
-func newStaticUpstreamTransport(upstream Upstream) (http.RoundTripper, error) {
+func newStaticHandlerTransport(handler Handler) (http.RoundTripper, error) {
 	base := http.DefaultTransport.(*http.Transport).Clone()
 	base.DisableKeepAlives = false
 	base.MaxIdleConns = 1024
@@ -328,12 +328,12 @@ func newStaticUpstreamTransport(upstream Upstream) (http.RoundTripper, error) {
 	base.ForceAttemptHTTP2 = true
 	base.TLSHandshakeTimeout = 10 * time.Second
 	base.ExpectContinueTimeout = 1 * time.Second
-	addresses := append([]string(nil), upstream.IPv4Addresses...)
-	port := strconv.Itoa(upstream.Port)
+	addresses := append([]string(nil), handler.IPv4Addresses...)
+	port := strconv.Itoa(handler.Port)
 	dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
 	base.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
 		if len(addresses) == 0 {
-			return nil, fmt.Errorf("no upstream IPv4 addresses configured")
+			return nil, fmt.Errorf("no handler IPv4 addresses configured")
 		}
 		errs := make([]string, 0, len(addresses))
 		for _, rawIP := range addresses {
@@ -344,22 +344,22 @@ func newStaticUpstreamTransport(upstream Upstream) (http.RoundTripper, error) {
 			}
 			errs = append(errs, fmt.Sprintf("%s: %v", rawIP, err))
 		}
-		return nil, fmt.Errorf("dial upstream %s:%s failed: %s", upstream.Hostname, port, strings.Join(errs, "; "))
+		return nil, fmt.Errorf("dial handler %s:%s failed: %s", handler.Hostname, port, strings.Join(errs, "; "))
 	}
 
-	if usesTLSUpstream(upstream.Protocol) {
+	if usesTLSHandler(handler.Protocol) {
 		if base.TLSClientConfig == nil {
 			base.TLSClientConfig = &tls.Config{}
 		} else {
 			base.TLSClientConfig = base.TLSClientConfig.Clone()
 		}
-		if upstream.Hostname != "" {
-			base.TLSClientConfig.ServerName = upstream.Hostname
+		if handler.Hostname != "" {
+			base.TLSClientConfig.ServerName = handler.Hostname
 		}
-		if upstream.TrustedCA != nil {
-			pool, err := loadTrustedCertPool(upstream.TrustedCA.File)
+		if handler.TrustedCA != nil {
+			pool, err := loadTrustedCertPool(handler.TrustedCA.File)
 			if err != nil {
-				return nil, fmt.Errorf("load trusted_ca %q from %s: %w", upstream.TrustedCA.Name, upstream.TrustedCA.File, err)
+				return nil, fmt.Errorf("load trusted_ca %q from %s: %w", handler.TrustedCA.Name, handler.TrustedCA.File, err)
 			}
 			base.TLSClientConfig.RootCAs = pool
 		}
@@ -367,23 +367,23 @@ func newStaticUpstreamTransport(upstream Upstream) (http.RoundTripper, error) {
 	return base, nil
 }
 
-func upstreamURL(upstream Upstream) *url.URL {
-	host := net.JoinHostPort(upstream.Hostname, strconv.Itoa(upstream.Port))
+func handlerURL(handler Handler) *url.URL {
+	host := net.JoinHostPort(handler.Hostname, strconv.Itoa(handler.Port))
 	return &url.URL{
-		Scheme:   proxyScheme(upstream.Protocol),
+		Scheme:   proxyScheme(handler.Protocol),
 		Host:     host,
-		Path:     upstream.Path,
-		RawQuery: upstream.RawQuery,
+		Path:     handler.Path,
+		RawQuery: handler.RawQuery,
 	}
 }
 
-func formatUpstream(upstream Upstream) string {
-	host := net.JoinHostPort(upstream.Hostname, strconv.Itoa(upstream.Port))
+func formatHandler(handler Handler) string {
+	host := net.JoinHostPort(handler.Hostname, strconv.Itoa(handler.Port))
 	return (&url.URL{
-		Scheme:   upstream.Protocol,
+		Scheme:   handler.Protocol,
 		Host:     host,
-		Path:     upstream.Path,
-		RawQuery: upstream.RawQuery,
+		Path:     handler.Path,
+		RawQuery: handler.RawQuery,
 	}).String()
 }
 
@@ -394,7 +394,7 @@ func formatRouteTarget(route Route) string {
 	if route.Handler == nil {
 		return "<invalid>"
 	}
-	return formatUpstream(*route.Handler)
+	return formatHandler(*route.Handler)
 }
 
 func proxyScheme(protocol string) string {
@@ -408,7 +408,7 @@ func proxyScheme(protocol string) string {
 	}
 }
 
-func usesTLSUpstream(protocol string) bool {
+func usesTLSHandler(protocol string) bool {
 	switch strings.ToLower(strings.TrimSpace(protocol)) {
 	case "https", "wss":
 		return true
