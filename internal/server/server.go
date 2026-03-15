@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -12,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -92,30 +90,7 @@ func Run(opts RunOptions) error {
 	activeRoutes.Store(routes)
 	defer closeRouteProxies(activeRoutes.Load().([]routeProxy))
 
-	router := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if serveACMEChallenge(w, r, errLog) {
-			return
-		}
-
-		routesNow := activeRoutes.Load().([]routeProxy)
-		clientIP := requestRemoteIP(r)
-		for _, route := range routesNow {
-			if strings.HasPrefix(r.URL.Path, route.prefix) {
-				if len(route.allowedIPv4Ranges) > 0 && !isClientIPv4Allowed(clientIP, route.allowedIPv4Ranges) {
-					http.Error(w, "Forbidden", http.StatusForbidden)
-					errLog.Printf("access_denied path=%q route_prefix=%q client_ip=%q reason=client_ip_not_allowed", r.URL.Path, route.prefix, clientIP)
-					return
-				}
-				if route.redirectTarget != "" {
-					http.Redirect(w, r, route.redirectTarget, http.StatusMovedPermanently)
-					return
-				}
-				route.proxy.ServeHTTP(w, r)
-				return
-			}
-		}
-		http.NotFound(w, r)
-	})
+	router := newRequestRouter(&activeRoutes, errLog)
 	handler := accessLogMiddleware(router, accessLog)
 
 	httpSrv := &http.Server{Addr: opts.HTTPAddr, Handler: handler}
@@ -199,43 +174,6 @@ func Run(opts RunOptions) error {
 	return <-errCh
 }
 
-func serveACMEChallenge(w http.ResponseWriter, r *http.Request, errLog *log.Logger) bool {
-	if !strings.HasPrefix(r.URL.Path, acmeChallengeURLPrefix) {
-		return false
-	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return true
-	}
-
-	token := strings.TrimPrefix(r.URL.Path, acmeChallengeURLPrefix)
-	if token == "" || strings.Contains(token, "/") || strings.Contains(token, "\\") || strings.Contains(token, "..") {
-		http.NotFound(w, r)
-		return true
-	}
-
-	path := filepath.Join(acmeChallengeJailDir, filepath.Base(token))
-	b, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			http.NotFound(w, r)
-			return true
-		}
-		errLog.Printf("acme_challenge_read_failed path=%q err=%v", path, err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return true
-	}
-
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	if r.Method == http.MethodHead {
-		w.WriteHeader(http.StatusOK)
-		return true
-	}
-	_, _ = w.Write(b)
-	return true
-}
-
 func closeRouteProxies(routes []routeProxy) {
 	for _, route := range routes {
 		if route.proxy == nil || route.proxy.Transport == nil {
@@ -278,9 +216,9 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 		originalDirector := proxy.Director
 		proxy.Director = func(req *http.Request) {
 			originalDirector(req)
-			setForwardedHeaders(req)
+			handleProxyForwardedHeaders(req)
 		}
-		transport, transportErr := newStaticHandlerTransport(handlerCfg)
+		transport, transportErr := handleProxyTransport(handlerCfg)
 		if transportErr != nil {
 			return nil, fmt.Errorf("configure transport for path %q: %w", prefix, transportErr)
 		}
@@ -316,55 +254,6 @@ func isClientIPv4Allowed(rawIP string, ranges []IPv4Range) bool {
 		}
 	}
 	return false
-}
-
-func newStaticHandlerTransport(handler Handler) (http.RoundTripper, error) {
-	base := http.DefaultTransport.(*http.Transport).Clone()
-	base.DisableKeepAlives = false
-	base.MaxIdleConns = 1024
-	base.MaxIdleConnsPerHost = 1024
-	base.IdleConnTimeout = 0
-	base.MaxConnsPerHost = 0
-	base.ForceAttemptHTTP2 = true
-	base.TLSHandshakeTimeout = 10 * time.Second
-	base.ExpectContinueTimeout = 1 * time.Second
-	addresses := append([]string(nil), handler.IPv4Addresses...)
-	port := strconv.Itoa(handler.Port)
-	dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
-	base.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
-		if len(addresses) == 0 {
-			return nil, fmt.Errorf("no handler IPv4 addresses configured")
-		}
-		errs := make([]string, 0, len(addresses))
-		for _, rawIP := range addresses {
-			addr := net.JoinHostPort(rawIP, port)
-			conn, err := dialer.DialContext(ctx, network, addr)
-			if err == nil {
-				return conn, nil
-			}
-			errs = append(errs, fmt.Sprintf("%s: %v", rawIP, err))
-		}
-		return nil, fmt.Errorf("dial handler %s:%s failed: %s", handler.Hostname, port, strings.Join(errs, "; "))
-	}
-
-	if usesTLSHandler(handler.Protocol) {
-		if base.TLSClientConfig == nil {
-			base.TLSClientConfig = &tls.Config{}
-		} else {
-			base.TLSClientConfig = base.TLSClientConfig.Clone()
-		}
-		if handler.Hostname != "" {
-			base.TLSClientConfig.ServerName = handler.Hostname
-		}
-		if handler.TrustedCA != nil {
-			pool, err := loadTrustedCertPool(handler.TrustedCA.File)
-			if err != nil {
-				return nil, fmt.Errorf("load trusted_ca %q from %s: %w", handler.TrustedCA.Name, handler.TrustedCA.File, err)
-			}
-			base.TLSClientConfig.RootCAs = pool
-		}
-	}
-	return base, nil
 }
 
 func handlerURL(handler Handler) *url.URL {
@@ -431,60 +320,6 @@ func loadTrustedCertPool(certPath string) (*x509.CertPool, error) {
 		return nil, fmt.Errorf("no certificates found in PEM data")
 	}
 	return pool, nil
-}
-
-func setForwardedHeaders(req *http.Request) {
-	clientAddr := requestRemoteIP(req)
-	proto := requestScheme(req)
-	port := requestPort(req, proto)
-	host := req.Host
-
-	req.Header.Set("X-Real-IP", clientAddr)
-	req.Header.Set("X-Forwarded-Host", host)
-	req.Header.Set("X-Forwarded-Proto", proto)
-	req.Header.Set("X-Forwarded-Port", port)
-
-	forwardedValue := fmt.Sprintf("for=%s;host=%q;proto=%s", formatForwardedFor(clientAddr), host, proto)
-	if existing := strings.TrimSpace(req.Header.Get("Forwarded")); existing != "" {
-		req.Header.Set("Forwarded", existing+", "+forwardedValue)
-		return
-	}
-	req.Header.Set("Forwarded", forwardedValue)
-}
-
-func requestRemoteIP(req *http.Request) string {
-	host, _, err := net.SplitHostPort(req.RemoteAddr)
-	if err != nil {
-		return req.RemoteAddr
-	}
-	return host
-}
-
-func requestScheme(req *http.Request) string {
-	if req.TLS != nil {
-		return "https"
-	}
-	return "http"
-}
-
-func requestPort(req *http.Request, proto string) string {
-	if _, port, err := net.SplitHostPort(req.Host); err == nil && port != "" {
-		return port
-	}
-
-	switch proto {
-	case "https":
-		return "443"
-	default:
-		return "80"
-	}
-}
-
-func formatForwardedFor(ip string) string {
-	if strings.Contains(ip, ":") {
-		return fmt.Sprintf("\"[%s]\"", ip)
-	}
-	return fmt.Sprintf("\"%s\"", ip)
 }
 
 func clientIP(r *http.Request) string {
