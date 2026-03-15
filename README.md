@@ -100,6 +100,7 @@ Rules:
 - `allowed_ipv4` is optional and can include IPv4 addresses, IPv4 ranges (`start-end`), and IPv4 CIDRs.
 - If a request matches a route prefix with `allowed_ipv4` and the client IPv4 is not in the allow-list, `webd` returns `403 Forbidden` for that route.
 - `trusted_ca` is optional and supported only for `https` and `wss` handlers.
+- If `trusted_ca` is omitted for an `https` or `wss` handler, `webctl reload` probes the endpoint, verifies it against the OS trust store, and auto-stages a pinned CA bundle (issuing CA and, when present in the system trust store, its root CA) into `/run/webd`.
 - `trusted_ca` cannot be used with `redirect` routes.
 - `trusted_ca.name` may contain only letters, digits, `.`, `_`, and `-`.
 - `trusted_ca.cert_path` must point to a PEM CA bundle that `webctl reload` can read.
@@ -278,7 +279,7 @@ Runtime behavior highlights:
 - `webctl reload` resolves handler hostnames and writes runtime config with route `path` plus decomposed `handler` targets including `protocol`, `hostname`, `port`, `path`, and `ipv4_addresses`.
 - `webctl reload` verifies each HTTPS handler against its configured local trusted CA bundle, extracts the validating intermediate/root certificates when possible, and stages them at `/run/webd/ca-<name>.crt`.
 - `webd` loads only `/run/webd/config.json`, dials the staged IPv4 addresses directly, and does not perform DNS lookups for handler routing.
-- `webd` uses a staged trusted CA bundle to verify an HTTPS handler when that handler declares `trusted_ca`.
+- `webd` uses a staged trusted CA bundle to verify an HTTPS handler when that handler declares `trusted_ca`, or when `webctl reload` auto-pins the handler CA chain for handlers without `trusted_ca`.
 - Handler requests include standard proxy headers such as `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port`, `X-Real-IP`, and `Forwarded`.
 - `webd` accepts no flags/subcommands; control operations are in `webctl`.
 - `webd` requires effective UID in the 500-999 range.
@@ -315,7 +316,7 @@ Control-plane reload (`webctl reload` and `--prepare-only`):
 5. `Run` stages all runtime artifacts through `stageTLSArtifacts`.
 6. `stageTLSArtifacts` first calls `stageConfigArtifact`, which loads the YAML source config with `internal/cli/config.go:Load`, converts it to runtime JSON with `buildRuntimeConfig`, and writes `/run/webd/config.json` atomically.
 7. `buildRuntimeConfig` translates `allowed_ipv4` entries into numeric `start`/`end` IPv4 ranges for the runtime JSON, emits redirect routes directly, and for handler routes uses `buildRuntimeHandler` to resolve `ipv4_addresses` and stage `trusted_ca` runtime files when configured.
-8. `stageTrustedCA` verifies the handler against the local CA file by calling `fetchVerifiedHandlerCACerts`; that helper reads the configured PEM bundle, fetches the handler-presented chain with `fetchHandlerPeerCertificates`, verifies it with `x509.Certificate.Verify`, optionally extends it with `appendLocalParentChain`, and writes `/run/webd/ca-<name>.crt` with `writeTrustedCAFile`.
+8. For handlers with `trusted_ca`, `stageTrustedCA` verifies the handler against the local CA file by calling `fetchVerifiedHandlerCACerts`; for `https`/`wss` handlers without `trusted_ca`, `stageAutoTrustedCA` verifies against the OS trust store via `fetchVerifiedHandlerOSCACerts` and stages the detected issuing/root CA chain. Both paths write `/run/webd/ca-<name>.crt` with `writeTrustedCAFile`.
 9. After the runtime JSON is staged, `stageTLSArtifacts` validates the configured server certificate chain order with `validateTLSBundleOrder`, then copies the TLS certificate and key into `/run/webd/tls.crt` and `/run/webd/tls.key` with `copyFileAtomic` and fixes ownership.
 10. If `PrepareOnly` is true, `Run` stops here after logging `prepare-only mode complete`; no process discovery or signal delivery happens.
 11. Otherwise, `Run` sends `SIGHUP` to each discovered daemon PID with `syscall.Kill`, which triggers the in-process reload path in `internal/server/server.go:Run`.

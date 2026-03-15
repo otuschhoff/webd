@@ -363,29 +363,28 @@ func buildRuntimeHandler(route Route, uid, gid int, stagedCAs map[string]*staged
 	}
 
 	var trustedCA *server.TrustedCA
-	if route.TrustedCA != nil {
-		trustedCA, err = stageTrustedCA(route.TrustedCA, server.Handler{
-			Protocol:      protocol,
-			Hostname:      hostname,
-			Port:          portNum,
-			Path:          u.Path,
-			RawQuery:      u.RawQuery,
-			IPv4Addresses: resolvedIPs,
-		}, uid, gid, stagedCAs)
-		if err != nil {
-			return server.Handler{}, err
-		}
-	}
-
-	return server.Handler{
+	handlerCfg := server.Handler{
 		Protocol:      protocol,
 		Hostname:      hostname,
 		Port:          portNum,
 		Path:          u.Path,
 		RawQuery:      u.RawQuery,
 		IPv4Addresses: resolvedIPs,
-		TrustedCA:     trustedCA,
-	}, nil
+	}
+	if route.TrustedCA != nil {
+		trustedCA, err = stageTrustedCA(route.TrustedCA, handlerCfg, uid, gid, stagedCAs)
+		if err != nil {
+			return server.Handler{}, err
+		}
+	} else if protocol == "https" || protocol == "wss" {
+		trustedCA, err = stageAutoTrustedCA(handlerCfg, uid, gid, stagedCAs)
+		if err != nil {
+			return server.Handler{}, err
+		}
+	}
+
+	handlerCfg.TrustedCA = trustedCA
+	return handlerCfg, nil
 }
 
 func lookupIPv4Addresses(hostname string) ([]string, error) {
@@ -473,6 +472,55 @@ func stageTrustedCA(trustedCA *TrustedCA, handler server.Handler, uid, gid int, 
 	return &server.TrustedCA{Name: name, File: filepath.Base(entry.destPath)}, nil
 }
 
+func stageAutoTrustedCA(handler server.Handler, uid, gid int, stagedCAs map[string]*stagedTrustedCA) (*server.TrustedCA, error) {
+	name := autoTrustedCAName(handler)
+	key := "auto:" + name
+
+	entry, ok := stagedCAs[name]
+	if ok && entry.sourcePath != key {
+		return nil, fmt.Errorf("auto trusted_ca name %q collides with another trusted_ca entry", name)
+	}
+
+	if err := ensureRuntimeTrustedCADir(uid, gid); err != nil {
+		return nil, err
+	}
+
+	caCerts, err := fetchVerifiedHandlerOSCACerts(handler)
+	if err != nil {
+		return nil, err
+	}
+
+	if !ok {
+		entry = &stagedTrustedCA{
+			sourcePath: key,
+			destPath:   filepath.Join(DefaultRuntimeTrustedCADir, "ca-"+name+".crt"),
+			indexBySum: make(map[[32]byte]int),
+			pemBlocks:  make([][]byte, 0, len(caCerts)),
+		}
+		stagedCAs[name] = entry
+	}
+
+	for _, cert := range caCerts {
+		sum := sha256.Sum256(cert.Raw)
+		if _, exists := entry.indexBySum[sum]; exists {
+			continue
+		}
+		entry.indexBySum[sum] = len(entry.pemBlocks)
+		entry.pemBlocks = append(entry.pemBlocks, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw}))
+	}
+
+	if err := writeTrustedCAFile(entry.destPath, entry.pemBlocks, uid, gid); err != nil {
+		return nil, fmt.Errorf("stage auto trusted_ca %q: %w", name, err)
+	}
+
+	return &server.TrustedCA{Name: name, File: filepath.Base(entry.destPath)}, nil
+}
+
+func autoTrustedCAName(handler server.Handler) string {
+	sum := sha256.Sum256([]byte(formatRuntimeHandler(handler)))
+	return fmt.Sprintf("auto-%x", sum[:6])
+}
+
 func ensureRuntimeTrustedCADir(uid, gid int) error {
 	if err := os.MkdirAll(DefaultRuntimeTrustedCADir, 0o750); err != nil {
 		return fmt.Errorf("create trusted_ca runtime directory %s: %w", DefaultRuntimeTrustedCADir, err)
@@ -530,6 +578,54 @@ func fetchVerifiedHandlerCACerts(handler server.Handler, sourcePath string) ([]*
 		return nil, fmt.Errorf("no verified certificate chain found for handler %s", formatRuntimeHandler(handler))
 	}
 	chain = appendLocalParentChain(chain, localCerts)
+
+	caCerts := make([]*x509.Certificate, 0, len(chain)-1)
+	for _, cert := range chain[1:] {
+		if cert.IsCA {
+			caCerts = append(caCerts, cert)
+		}
+	}
+	if len(caCerts) == 0 {
+		return nil, fmt.Errorf("no validating CA certificates found for handler %s", formatRuntimeHandler(handler))
+	}
+	return caCerts, nil
+}
+
+func fetchVerifiedHandlerOSCACerts(handler server.Handler) ([]*x509.Certificate, error) {
+	peerCerts, err := fetchHandlerPeerCertificates(handler)
+	if err != nil {
+		return nil, err
+	}
+	if len(peerCerts) == 0 {
+		return nil, fmt.Errorf("handler %s presented no TLS certificates", formatRuntimeHandler(handler))
+	}
+
+	roots, err := x509.SystemCertPool()
+	if err != nil {
+		return nil, fmt.Errorf("load system cert pool: %w", err)
+	}
+	if roots == nil {
+		return nil, fmt.Errorf("load system cert pool: empty pool")
+	}
+
+	intermediates := x509.NewCertPool()
+	for _, cert := range peerCerts[1:] {
+		intermediates.AddCert(cert)
+	}
+
+	verifiedChains, err := peerCerts[0].Verify(x509.VerifyOptions{
+		DNSName:       handler.Hostname,
+		Roots:         roots,
+		Intermediates: intermediates,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("verify handler %s against system trust store: %w", formatRuntimeHandler(handler), err)
+	}
+
+	chain := longestVerifiedChain(verifiedChains)
+	if len(chain) == 0 {
+		return nil, fmt.Errorf("no verified certificate chain found for handler %s", formatRuntimeHandler(handler))
+	}
 
 	caCerts := make([]*x509.Certificate, 0, len(chain)-1)
 	for _, cert := range chain[1:] {
