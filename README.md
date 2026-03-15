@@ -76,6 +76,9 @@ routes:
       cert_path: /etc/pki/ca-trust/source/anchors/internal-api.crt
   - path: /websocket/
     handler: wss://server.eu.example.com:9000/websocket/
+  - path: /static/
+    handler: file:///var/www/static
+    browse: true
   - path: /legacy/
     redirect: https://www.example.com/new-home/
   - path: /
@@ -89,7 +92,11 @@ Rules:
 - Each route must set exactly one of `handler` or `redirect`.
 - `handler` must be a valid absolute URL.
 - `redirect` must be a valid absolute URL and returns `301 Moved Permanently`.
-- Supported handler schemes are `http`, `https`, `ws`, and `wss`.
+- Supported handler schemes are `http`, `https`, `ws`, `wss`, and `file`.
+- For `file://` handlers, the path must be absolute and local.
+- For directory paths, `webd` attempts to serve `index.html` first.
+- If `browse: true` is set on a `file://` route and no `index.html` is present for a requested directory path, `webd` returns an HTML directory listing (subdirs/files, size, modtime).
+- `browse` is supported only for `file://` handlers.
 - `allowed_ipv4` is optional and can include IPv4 addresses, IPv4 ranges (`start-end`), and IPv4 CIDRs.
 - If a request matches a route prefix with `allowed_ipv4` and the client IPv4 is not in the allow-list, `webd` returns `403 Forbidden` for that route.
 - `trusted_ca` is optional and supported only for `https` and `wss` handlers.
@@ -153,6 +160,18 @@ routes:
     trusted_ca:
       name: server-ws
       cert_path: /etc/pki/ca-trust/source/anchors/server-ws.crt
+
+  - path: /
+    handler: http://127.0.0.1:3000
+```
+
+Local file handler with directory browsing:
+
+```yaml
+routes:
+  - path: /static/
+    handler: file:///var/www/static
+    browse: true
 
   - path: /
     handler: http://127.0.0.1:3000

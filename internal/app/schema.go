@@ -41,6 +41,9 @@ const sourceConfigSchemaJSON = `{
               "minLength": 1
             }
           },
+          "browse": {
+            "type": "boolean"
+          },
           "trusted_ca": {
             "type": "object",
             "additionalProperties": false,
@@ -114,6 +117,9 @@ const runtimeConfigSchemaJSON = `{
               }
             }
           },
+          "browse": {
+            "type": "boolean"
+          },
           "redirect": {
             "type": "string",
             "pattern": "^[A-Za-z][A-Za-z0-9+.-]*://.+"
@@ -121,11 +127,10 @@ const runtimeConfigSchemaJSON = `{
           "handler": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["protocol", "hostname", "port", "ipv4_addresses"],
             "properties": {
               "protocol": {
                 "type": "string",
-                "enum": ["http", "https", "ws", "wss"]
+                "enum": ["http", "https", "ws", "wss", "file"]
               },
               "hostname": {
                 "type": "string",
@@ -166,7 +171,25 @@ const runtimeConfigSchemaJSON = `{
                   }
                 }
               }
-            }
+            },
+            "oneOf": [
+              {
+                "required": ["protocol", "hostname", "port", "ipv4_addresses"],
+                "properties": {
+                  "protocol": {
+                    "enum": ["http", "https", "ws", "wss"]
+                  }
+                }
+              },
+              {
+                "required": ["protocol", "path"],
+                "properties": {
+                  "protocol": {
+                    "const": "file"
+                  }
+                }
+              }
+            ]
           }
         },
         "oneOf": [

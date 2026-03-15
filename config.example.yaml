@@ -26,6 +26,11 @@ routes:
   #     name: server-ws
   #     cert_path: /etc/pki/ca-trust/source/anchors/server-ws.crt
 
+  # Example local file handler with optional directory listing.
+  # - path: /static/
+  #   handler: file:///var/www/static
+  #   browse: true
+
   # Example permanent redirect route.
   # Exactly one of handler or redirect must be set per route.
   # - path: /legacy/

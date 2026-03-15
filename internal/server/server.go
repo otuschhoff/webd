@@ -26,6 +26,7 @@ type routeProxy struct {
 	prefix            string
 	redirectTarget    string
 	proxy             *httputil.ReverseProxy
+	localHandler      http.Handler
 	allowedIPv4Ranges []IPv4Range
 }
 
@@ -207,6 +208,14 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			return nil, fmt.Errorf("route for path %q has no handler", prefix)
 		}
 		handlerCfg := *r.Handler
+		if strings.EqualFold(strings.TrimSpace(handlerCfg.Protocol), "file") {
+			localHandler, localErr := newLocalFileHandler(prefix, handlerCfg.Path, r.Browse)
+			if localErr != nil {
+				return nil, fmt.Errorf("configure local file handler for path %q: %w", prefix, localErr)
+			}
+			routes = append(routes, routeProxy{prefix: prefix, localHandler: localHandler, allowedIPv4Ranges: append([]IPv4Range(nil), r.AllowedIPv4Ranges...)})
+			continue
+		}
 
 		targetURL := handlerURL(handlerCfg)
 		handler := targetURL.String()
@@ -282,6 +291,9 @@ func formatRouteTarget(route Route) string {
 	}
 	if route.Handler == nil {
 		return "<invalid>"
+	}
+	if strings.EqualFold(strings.TrimSpace(route.Handler.Protocol), "file") {
+		return "handler:file://" + route.Handler.Path
 	}
 	return formatHandler(*route.Handler)
 }

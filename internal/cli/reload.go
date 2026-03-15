@@ -283,6 +283,7 @@ func buildRuntimeConfig(cfg *Config, uid, gid int) (*server.Config, error) {
 			resolved.Routes = append(resolved.Routes, server.Route{
 				Path:              route.Path,
 				AllowedIPv4Ranges: allowedIPv4Ranges,
+				Browse:            route.Browse,
 				Redirect:          strings.TrimSpace(route.Redirect),
 			})
 			continue
@@ -295,6 +296,7 @@ func buildRuntimeConfig(cfg *Config, uid, gid int) (*server.Config, error) {
 		resolved.Routes = append(resolved.Routes, server.Route{
 			Path:              route.Path,
 			AllowedIPv4Ranges: allowedIPv4Ranges,
+			Browse:            route.Browse,
 			Handler:           &handler,
 		})
 	}
@@ -310,11 +312,31 @@ type stagedTrustedCA struct {
 
 func buildRuntimeHandler(route Route, uid, gid int, stagedCAs map[string]*stagedTrustedCA) (server.Handler, error) {
 	u, err := url.Parse(route.Handler)
-	if err != nil || u.Scheme == "" || u.Host == "" {
+	if err != nil || u.Scheme == "" {
 		return server.Handler{}, fmt.Errorf("invalid handler URL")
 	}
 
 	protocol := strings.ToLower(u.Scheme)
+	if protocol == "file" {
+		host := strings.TrimSpace(u.Host)
+		if host != "" && host != "localhost" {
+			return server.Handler{}, fmt.Errorf("file handler host must be empty or localhost")
+		}
+		if strings.TrimSpace(u.Path) == "" || !filepath.IsAbs(u.Path) {
+			return server.Handler{}, fmt.Errorf("file handler path must be absolute")
+		}
+		if route.TrustedCA != nil {
+			return server.Handler{}, fmt.Errorf("trusted_ca is not supported for file handlers")
+		}
+		return server.Handler{
+			Protocol: "file",
+			Path:     u.Path,
+		}, nil
+	}
+	if u.Host == "" {
+		return server.Handler{}, fmt.Errorf("invalid handler URL")
+	}
+
 	hostname := u.Hostname()
 	port := u.Port()
 	if port == "" {

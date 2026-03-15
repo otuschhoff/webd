@@ -5,6 +5,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -23,13 +24,15 @@ type TrustedCA struct {
 type Route struct {
 	// Path is matched against the incoming request path.
 	Path string `yaml:"path" json:"path"`
-	// Handler is the absolute HTTP/HTTPS/WS/WSS handler base URL.
+	// Handler is the absolute HTTP/HTTPS/WS/WSS/file handler URL.
 	Handler string `yaml:"handler,omitempty" json:"handler,omitempty"`
 	// Redirect is an absolute URL for HTTP 301 redirects when this route matches.
 	// Exactly one of Handler or Redirect must be set.
 	Redirect string `yaml:"redirect,omitempty" json:"redirect,omitempty"`
 	// AllowedIPv4 optionally restricts this route to specific IPv4 addresses, ranges, and/or CIDRs.
 	AllowedIPv4 []string `yaml:"allowed_ipv4,omitempty" json:"allowed_ipv4,omitempty"`
+	// Browse enables directory listing when a file:// handler maps to a directory path.
+	Browse bool `yaml:"browse,omitempty" json:"browse,omitempty"`
 	// TrustedCA identifies a PEM CA bundle that should verify this handler TLS server.
 	TrustedCA *TrustedCA `yaml:"trusted_ca,omitempty" json:"trusted_ca,omitempty"`
 }
@@ -117,12 +120,23 @@ func Validate(cfg *Config) error {
 		scheme := ""
 		if hasHandler {
 			u, err := url.Parse(handlerRaw)
-			if err != nil || u.Scheme == "" || u.Host == "" {
+			if err != nil || u.Scheme == "" {
 				return fmt.Errorf("invalid handler for path %q: %q", prefix, r.Handler)
 			}
 			scheme = strings.ToLower(strings.TrimSpace(u.Scheme))
-			if scheme != "http" && scheme != "https" && scheme != "ws" && scheme != "wss" {
+			if scheme != "http" && scheme != "https" && scheme != "ws" && scheme != "wss" && scheme != "file" {
 				return fmt.Errorf("invalid handler scheme for path %q: %q", prefix, r.Handler)
+			}
+			if scheme == "file" {
+				host := strings.TrimSpace(u.Host)
+				if host != "" && host != "localhost" {
+					return fmt.Errorf("file handler host must be empty or localhost for path %q: %q", prefix, r.Handler)
+				}
+				if strings.TrimSpace(u.Path) == "" || !filepath.IsAbs(u.Path) {
+					return fmt.Errorf("file handler path must be absolute for path %q: %q", prefix, r.Handler)
+				}
+			} else if strings.TrimSpace(u.Host) == "" {
+				return fmt.Errorf("invalid handler for path %q: %q", prefix, r.Handler)
 			}
 		}
 		if hasRedirect {
@@ -155,6 +169,10 @@ func Validate(cfg *Config) error {
 			if scheme != "https" && scheme != "wss" {
 				return fmt.Errorf("trusted_ca is supported only for https and wss handlers for path %q", prefix)
 			}
+		}
+
+		if r.Browse && scheme != "file" {
+			return fmt.Errorf("browse is supported only for file handlers for path %q", prefix)
 		}
 	}
 	return nil

@@ -90,6 +90,14 @@ func handleMatchedRouteRequest(w http.ResponseWriter, r *http.Request, route rou
 		handleRedirectRequest(w, r, route.redirectTarget)
 		return true
 	}
+	if route.localHandler != nil {
+		handleLocalFileRequest(w, r, route.localHandler)
+		return true
+	}
+	if route.proxy == nil {
+		handleNotFoundRequest(w, r)
+		return true
+	}
 	handleProxyRequest(w, r, route.proxy)
 	return true
 }
@@ -105,6 +113,10 @@ func handleRedirectRequest(w http.ResponseWriter, r *http.Request, target string
 
 func handleProxyRequest(w http.ResponseWriter, r *http.Request, proxy http.Handler) {
 	proxy.ServeHTTP(w, r)
+}
+
+func handleLocalFileRequest(w http.ResponseWriter, r *http.Request, localHandler http.Handler) {
+	localHandler.ServeHTTP(w, r)
 }
 
 func handleNotFoundRequest(w http.ResponseWriter, r *http.Request) {

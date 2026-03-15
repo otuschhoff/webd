@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"webd/internal/app"
@@ -35,6 +36,7 @@ type Handler struct {
 type Route struct {
 	Path              string      `json:"path"`
 	AllowedIPv4Ranges []IPv4Range `json:"allowed_ipv4_ranges,omitempty"`
+	Browse            bool        `json:"browse,omitempty"`
 	Redirect          string      `json:"redirect,omitempty"`
 	Handler           *Handler    `json:"handler,omitempty"`
 }
@@ -105,14 +107,41 @@ func Validate(cfg *Config) error {
 		}
 
 		if hasRedirect {
+			if r.Browse {
+				return fmt.Errorf("browse cannot be used with redirect for path %q", prefix)
+			}
 			continue
 		}
 
 		handler := r.Handler
 		protocol := strings.ToLower(strings.TrimSpace(handler.Protocol))
-		if protocol != "http" && protocol != "https" && protocol != "ws" && protocol != "wss" {
+		if protocol != "http" && protocol != "https" && protocol != "ws" && protocol != "wss" && protocol != "file" {
 			return fmt.Errorf("invalid handler protocol for path %q: %q", prefix, handler.Protocol)
 		}
+
+		if protocol == "file" {
+			if strings.TrimSpace(handler.Path) == "" || !filepath.IsAbs(handler.Path) {
+				return fmt.Errorf("file handler path must be absolute for path %q: %q", prefix, handler.Path)
+			}
+			if strings.TrimSpace(handler.Hostname) != "" {
+				return fmt.Errorf("file handler hostname must be empty for path %q", prefix)
+			}
+			if handler.Port != 0 {
+				return fmt.Errorf("file handler port must be 0 for path %q", prefix)
+			}
+			if len(handler.IPv4Addresses) != 0 {
+				return fmt.Errorf("file handler ipv4_addresses must be empty for path %q", prefix)
+			}
+			if handler.TrustedCA != nil {
+				return fmt.Errorf("trusted_ca is not supported for file handlers for path %q", prefix)
+			}
+			continue
+		}
+
+		if r.Browse {
+			return fmt.Errorf("browse is supported only for file handlers for path %q", prefix)
+		}
+
 		if strings.TrimSpace(handler.Hostname) == "" {
 			return fmt.Errorf("handler hostname is required for path %q", prefix)
 		}
