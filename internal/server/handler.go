@@ -1,8 +1,11 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"log"
 	"net"
@@ -162,14 +165,81 @@ func handleProxyTransport(handler Handler) (http.RoundTripper, error) {
 			base.TLSClientConfig.ServerName = handler.Hostname
 		}
 		if handler.TrustedCA != nil {
-			pool, err := loadTrustedCertPool(handler.TrustedCA.File)
-			if err != nil {
-				return nil, fmt.Errorf("load trusted_ca %q from %s: %w", handler.TrustedCA.Name, handler.TrustedCA.File, err)
+			if handler.TrustedCA.PinCert {
+				pinnedCerts, err := loadPinnedCerts(handler.TrustedCA.File)
+				if err != nil {
+					return nil, fmt.Errorf("load pinned cert %q from %s: %w", handler.TrustedCA.Name, handler.TrustedCA.File, err)
+				}
+				base.TLSClientConfig.InsecureSkipVerify = true
+				base.TLSClientConfig.VerifyPeerCertificate = func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+					if len(rawCerts) == 0 {
+						return fmt.Errorf("no peer certificates presented")
+					}
+
+					leafCert, err := x509.ParseCertificate(rawCerts[0])
+					if err != nil {
+						return fmt.Errorf("parse peer leaf certificate: %w", err)
+					}
+
+					now := time.Now()
+					if now.Before(leafCert.NotBefore) || now.After(leafCert.NotAfter) {
+						return fmt.Errorf("peer certificate is not valid at current time")
+					}
+
+					if handler.Hostname != "" {
+						if err := leafCert.VerifyHostname(handler.Hostname); err != nil {
+							return fmt.Errorf("peer certificate hostname mismatch: %w", err)
+						}
+					}
+
+					for _, pinned := range pinnedCerts {
+						if bytes.Equal(pinned.Raw, leafCert.Raw) {
+							return nil
+						}
+					}
+					return fmt.Errorf("peer leaf certificate does not match pinned certificate")
+				}
+			} else {
+				pool, err := loadTrustedCertPool(handler.TrustedCA.File)
+				if err != nil {
+					return nil, fmt.Errorf("load trusted_ca %q from %s: %w", handler.TrustedCA.Name, handler.TrustedCA.File, err)
+				}
+				base.TLSClientConfig.RootCAs = pool
 			}
-			base.TLSClientConfig.RootCAs = pool
 		}
 	}
 	return base, nil
+}
+
+func loadPinnedCerts(certPath string) ([]*x509.Certificate, error) {
+	pemBytes, err := os.ReadFile(certPath)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", certPath, err)
+	}
+
+	certs := make([]*x509.Certificate, 0, 1)
+	rest := pemBytes
+	for len(rest) > 0 {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		cert, parseErr := x509.ParseCertificate(block.Bytes)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parse certificate from %s: %w", certPath, parseErr)
+		}
+		certs = append(certs, cert)
+	}
+
+	if len(certs) == 0 {
+		return nil, fmt.Errorf("no certificates found in PEM data")
+	}
+
+	return certs, nil
 }
 
 func handleProxyForwardedHeaders(req *http.Request) {

@@ -44,6 +44,9 @@ const sourceConfigSchemaJSON = `{
           "browse": {
             "type": "boolean"
           },
+          "insecure": {
+            "type": "boolean"
+          },
           "trusted_ca": {
             "type": "object",
             "additionalProperties": false,
@@ -168,6 +171,9 @@ const runtimeConfigSchemaJSON = `{
                   "file": {
                     "type": "string",
                     "minLength": 1
+                  },
+                  "pin_cert": {
+                    "type": "boolean"
                   }
                 }
               }

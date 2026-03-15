@@ -33,6 +33,8 @@ type Route struct {
 	AllowedIPv4 []string `yaml:"allowed_ipv4,omitempty" json:"allowed_ipv4,omitempty"`
 	// Browse enables directory listing when a file:// handler maps to a directory path.
 	Browse bool `yaml:"browse,omitempty" json:"browse,omitempty"`
+	// Insecure enables endpoint certificate pinning for https/wss handlers.
+	Insecure bool `yaml:"insecure,omitempty" json:"insecure,omitempty"`
 	// TrustedCA identifies a PEM CA bundle that should verify this handler TLS server.
 	TrustedCA *TrustedCA `yaml:"trusted_ca,omitempty" json:"trusted_ca,omitempty"`
 }
@@ -168,6 +170,18 @@ func Validate(cfg *Config) error {
 			}
 			if scheme != "https" && scheme != "wss" {
 				return fmt.Errorf("trusted_ca is supported only for https and wss handlers for path %q", prefix)
+			}
+		}
+
+		if r.Insecure {
+			if hasRedirect {
+				return fmt.Errorf("insecure cannot be used with redirect for path %q", prefix)
+			}
+			if scheme != "https" && scheme != "wss" {
+				return fmt.Errorf("insecure is supported only for https and wss handlers for path %q", prefix)
+			}
+			if r.TrustedCA != nil {
+				return fmt.Errorf("insecure cannot be combined with trusted_ca for path %q", prefix)
 			}
 		}
 

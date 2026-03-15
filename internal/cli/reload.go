@@ -376,6 +376,11 @@ func buildRuntimeHandler(route Route, uid, gid int, stagedCAs map[string]*staged
 		if err != nil {
 			return server.Handler{}, err
 		}
+	} else if route.Insecure {
+		trustedCA, err = stageInsecureTrustedCert(handlerCfg, uid, gid, stagedCAs)
+		if err != nil {
+			return server.Handler{}, err
+		}
 	} else if protocol == "https" || protocol == "wss" {
 		trustedCA, err = stageAutoTrustedCA(handlerCfg, uid, gid, stagedCAs)
 		if err != nil {
@@ -514,6 +519,58 @@ func stageAutoTrustedCA(handler server.Handler, uid, gid int, stagedCAs map[stri
 	}
 
 	return &server.TrustedCA{Name: name, File: filepath.Base(entry.destPath)}, nil
+}
+
+func stageInsecureTrustedCert(handler server.Handler, uid, gid int, stagedCAs map[string]*stagedTrustedCA) (*server.TrustedCA, error) {
+	name := insecureTrustedCertName(handler)
+	key := "insecure:" + name
+
+	entry, ok := stagedCAs[name]
+	if ok && entry.sourcePath != key {
+		return nil, fmt.Errorf("insecure trusted_ca name %q collides with another trusted_ca entry", name)
+	}
+
+	if err := ensureRuntimeTrustedCADir(uid, gid); err != nil {
+		return nil, err
+	}
+
+	peerCerts, err := fetchHandlerPeerCertificates(handler)
+	if err != nil {
+		return nil, err
+	}
+	if len(peerCerts) == 0 {
+		return nil, fmt.Errorf("handler %s presented no TLS certificates", formatRuntimeHandler(handler))
+	}
+
+	leafCert := peerCerts[0]
+	pemBlock := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafCert.Raw})
+
+	if !ok {
+		entry = &stagedTrustedCA{
+			sourcePath: key,
+			destPath:   filepath.Join(DefaultRuntimeTrustedCADir, "ca-"+name+".crt"),
+			indexBySum: make(map[[32]byte]int),
+			pemBlocks:  make([][]byte, 0, 1),
+		}
+		stagedCAs[name] = entry
+	}
+
+	sum := sha256.Sum256(leafCert.Raw)
+	if _, exists := entry.indexBySum[sum]; !exists {
+		entry.indexBySum[sum] = len(entry.pemBlocks)
+		entry.pemBlocks = append(entry.pemBlocks, pemBlock)
+	}
+
+	if err := writeTrustedCAFile(entry.destPath, entry.pemBlocks, uid, gid); err != nil {
+		return nil, fmt.Errorf("stage insecure trusted_ca %q: %w", name, err)
+	}
+
+	return &server.TrustedCA{Name: name, File: filepath.Base(entry.destPath), PinCert: true}, nil
+}
+
+func insecureTrustedCertName(handler server.Handler) string {
+	sum := sha256.Sum256([]byte("insecure:" + formatRuntimeHandler(handler)))
+	return fmt.Sprintf("insecure-%x", sum[:6])
 }
 
 func autoTrustedCAName(handler server.Handler) string {

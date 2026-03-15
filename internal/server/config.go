@@ -18,8 +18,9 @@ type IPv4Range struct {
 }
 
 type TrustedCA struct {
-	Name string `json:"name"`
-	File string `json:"file"`
+	Name    string `json:"name"`
+	File    string `json:"file"`
+	PinCert bool   `json:"pin_cert,omitempty"`
 }
 
 type Handler struct {

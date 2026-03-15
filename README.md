@@ -101,6 +101,10 @@ Rules:
 - If a request matches a route prefix with `allowed_ipv4` and the client IPv4 is not in the allow-list, `webd` returns `403 Forbidden` for that route.
 - `trusted_ca` is optional and supported only for `https` and `wss` handlers.
 - If `trusted_ca` is omitted for an `https` or `wss` handler, `webctl reload` probes the endpoint, verifies it against the OS trust store, and auto-stages a pinned CA bundle (issuing CA and, when present in the system trust store, its root CA) into `/run/webd`.
+- `insecure` is optional and supported only for `https` and `wss` handlers.
+- If `insecure: true` is set, `webctl reload` fetches the endpoint’s current leaf certificate and pins that exact certificate for the route/handler.
+- `insecure: true` does not disable TLS verification; `webd` still checks hostname, certificate validity period, and exact leaf-cert match.
+- `insecure` cannot be used with `trusted_ca`.
 - `trusted_ca` cannot be used with `redirect` routes.
 - `trusted_ca.name` may contain only letters, digits, `.`, `_`, and `-`.
 - `trusted_ca.cert_path` must point to a PEM CA bundle that `webctl reload` can read.
@@ -161,6 +165,18 @@ routes:
     trusted_ca:
       name: server-ws
       cert_path: /etc/pki/ca-trust/source/anchors/server-ws.crt
+
+  - path: /
+    handler: http://127.0.0.1:3000
+```
+
+HTTPS handler with endpoint-certificate pinning:
+
+```yaml
+routes:
+  - path: /selfsigned/
+    handler: https://selfsigned.internal.example.com/
+    insecure: true
 
   - path: /
     handler: http://127.0.0.1:3000

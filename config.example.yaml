@@ -26,6 +26,11 @@ routes:
   #     name: server-ws
   #     cert_path: /etc/pki/ca-trust/source/anchors/server-ws.crt
 
+  # Example HTTPS handler with endpoint-certificate pinning.
+  # - path: /selfsigned/
+  #   handler: https://selfsigned.internal.example.com/
+  #   insecure: true
+
   # Example local file handler with optional directory listing.
   # - path: /static/
   #   handler: file:///var/www/static
