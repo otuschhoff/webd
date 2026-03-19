@@ -91,7 +91,7 @@ func Run(opts RunOptions) error {
 	activeRoutes.Store(routes)
 	defer closeRouteProxies(activeRoutes.Load().([]routeProxy))
 
-	router := newRequestRouter(&activeRoutes, errLog)
+	router := newRequestRouter(&activeRoutes, errLog, opts.HTTPSAddr)
 	handler := accessLogMiddleware(router, accessLog)
 
 	httpSrv := &http.Server{Addr: opts.HTTPAddr, Handler: handler}

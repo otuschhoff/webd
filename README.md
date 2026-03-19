@@ -107,6 +107,8 @@ Rules:
 - Each route must set exactly one of `handler` or `redirect`.
 - `handler` must be a valid absolute URL.
 - `redirect` must be a valid absolute URL and returns `301 Moved Permanently`.
+- Non-ACME HTTP requests are permanently redirected (`301`) to the equivalent `https://` URL.
+- ACME challenge requests under `/.well-known/acme-challenge/` are served over HTTP without redirect.
 - Supported handler schemes are `http`, `https`, `ws`, `wss`, and `file`.
 - For `file://` handlers, the path must be absolute and local.
 - For directory paths, `webd` attempts to serve `index.html` first.

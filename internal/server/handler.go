@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,14 +19,17 @@ import (
 	"time"
 )
 
-func newRequestRouter(activeRoutes *atomic.Value, errLog *log.Logger) http.Handler {
+func newRequestRouter(activeRoutes *atomic.Value, errLog *log.Logger, httpsAddr string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		handleIncomingRequest(w, r, activeRoutes, errLog)
+		handleIncomingRequest(w, r, activeRoutes, errLog, httpsAddr)
 	})
 }
 
-func handleIncomingRequest(w http.ResponseWriter, r *http.Request, activeRoutes *atomic.Value, errLog *log.Logger) {
+func handleIncomingRequest(w http.ResponseWriter, r *http.Request, activeRoutes *atomic.Value, errLog *log.Logger, httpsAddr string) {
 	if handleACMEChallengeRequest(w, r, errLog) {
+		return
+	}
+	if handleHTTPToHTTPSRedirectRequest(w, r, httpsAddr) {
 		return
 	}
 
@@ -72,6 +76,79 @@ func handleACMEChallengeRequest(w http.ResponseWriter, r *http.Request, errLog *
 	}
 	_, _ = w.Write(b)
 	return true
+}
+
+func handleHTTPToHTTPSRedirectRequest(w http.ResponseWriter, r *http.Request, httpsAddr string) bool {
+	if r.TLS != nil {
+		return false
+	}
+	httpsURL := buildEquivalentHTTPSURL(r, httpsAddr)
+	http.Redirect(w, r, httpsURL, http.StatusMovedPermanently)
+	return true
+}
+
+func buildEquivalentHTTPSURL(r *http.Request, httpsAddr string) string {
+	hostname, reqPort := splitRequestHostPort(r.Host)
+	if hostname == "" {
+		hostname = r.Host
+	}
+	if hostname == "" {
+		hostname = "localhost"
+	}
+
+	httpsPort := parseListenPort(httpsAddr)
+	if httpsPort == "" {
+		httpsPort = reqPort
+	}
+
+	host := hostname
+	if httpsPort != "" && httpsPort != "443" {
+		host = net.JoinHostPort(hostname, httpsPort)
+	}
+
+	return (&url.URL{
+		Scheme:   "https",
+		Host:     host,
+		Path:     r.URL.Path,
+		RawPath:  r.URL.RawPath,
+		RawQuery: r.URL.RawQuery,
+	}).String()
+}
+
+func splitRequestHostPort(host string) (string, string) {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return "", ""
+	}
+
+	parsedHost, parsedPort, err := net.SplitHostPort(host)
+	if err == nil {
+		return parsedHost, parsedPort
+	}
+
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		return strings.Trim(host, "[]"), ""
+	}
+
+	return host, ""
+}
+
+func parseListenPort(addr string) string {
+	trimmed := strings.TrimSpace(addr)
+	if trimmed == "" {
+		return ""
+	}
+
+	if strings.HasPrefix(trimmed, ":") {
+		return strings.TrimPrefix(trimmed, ":")
+	}
+
+	if host, port, err := net.SplitHostPort(trimmed); err == nil {
+		_ = host
+		return port
+	}
+
+	return ""
 }
 
 func handleRouteRequest(w http.ResponseWriter, r *http.Request, routes []routeProxy, errLog *log.Logger) bool {
