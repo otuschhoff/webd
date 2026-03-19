@@ -150,6 +150,10 @@ type shellCompletionTarget struct {
 }
 
 func ensureWebctlShellCompletions(webctlPath string) error {
+	if err := ensureWebctlSbinPath(webctlPath); err != nil {
+		return err
+	}
+
 	targets := []shellCompletionTarget{
 		{shell: "bash", path: "/usr/share/bash-completion/completions/webctl"},
 		{shell: "zsh", path: "/usr/share/zsh/site-functions/_webctl"},
@@ -177,13 +181,17 @@ func ensureWebctlShellCompletions(webctlPath string) error {
 }
 
 func ensureRootPathIncludesWebctlDir(webctlPath string) error {
+	if err := ensureWebctlSbinPath(webctlPath); err != nil {
+		return err
+	}
+
 	webctlDir := filepath.Clean(filepath.Dir(strings.TrimSpace(webctlPath)))
 	if webctlDir == "." || webctlDir == "/" || webctlDir == "" {
 		return fmt.Errorf("invalid webctl path for PATH setup: %q", webctlPath)
 	}
 
 	shScriptPath := "/etc/profile.d/webctl-path.sh"
-	shContent := fmt.Sprintf(`# Ensure root can run webctl without absolute path.
+	shContent := fmt.Sprintf(`# Ensure root can run webctl from /opt/webd/current/sbin.
 if [ "$(id -u)" -eq 0 ]; then
 	case ":${PATH}:" in
 		*:%s:*) ;;
@@ -193,7 +201,7 @@ fi
 `, webctlDir, webctlDir)
 
 	cshScriptPath := "/etc/profile.d/webctl-path.csh"
-	cshContent := fmt.Sprintf("# Ensure root can run webctl without absolute path.\nif ( \"`id -u`\" == \"0\" ) then\n\tif ( \"$?PATH\" ) then\n\t\tif ( \":${PATH}:\" !~ *\":%s:\"* ) setenv PATH \"${PATH}:%s\"\n\telse\n\t\tsetenv PATH \"%s\"\n\tendif\nendif\n", webctlDir, webctlDir, webctlDir)
+	cshContent := fmt.Sprintf("# Ensure root can run webctl from /opt/webd/current/sbin.\nif ( \"`id -u`\" == \"0\" ) then\n\tif ( \"$?PATH\" ) then\n\t\tif ( \":${PATH}:\" !~ *\":%s:\"* ) setenv PATH \"${PATH}:%s\"\n\telse\n\t\tsetenv PATH \"%s\"\n\tendif\nendif\n", webctlDir, webctlDir, webctlDir)
 
 	targets := []struct {
 		path    string
@@ -218,7 +226,22 @@ fi
 	return nil
 }
 
+func ensureWebctlSbinPath(webctlPath string) error {
+	clean := filepath.Clean(strings.TrimSpace(webctlPath))
+	if clean == "" {
+		return fmt.Errorf("webctl path is empty")
+	}
+	expectedSuffix := filepath.Join("sbin", "webctl")
+	if !strings.HasSuffix(clean, expectedSuffix) {
+		return fmt.Errorf("webctl path must point to sbin/webctl, got %q", clean)
+	}
+	return nil
+}
+
 func generateShellCompletion(webctlPath, shell string) (string, error) {
+	if err := ensureWebctlSbinPath(webctlPath); err != nil {
+		return "", err
+	}
 	cmd := exec.Command(webctlPath, "completion", shell)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -446,12 +469,17 @@ func resolveInstallSourceBinaries() (string, string, error) {
 		return "", "", fmt.Errorf("locate webctl binary %s: %w", webctlSourcePath, err)
 	}
 
-	webdSourcePath := filepath.Join(execDir, "webd")
-	if _, err := os.Stat(webdSourcePath); err != nil {
-		return "", "", fmt.Errorf("locate webd binary next to webctl (%s): %w", webdSourcePath, err)
+	webdCandidates := []string{
+		filepath.Join(execDir, "webd"),
+		filepath.Join(filepath.Dir(execDir), "libexec", "webd"),
+	}
+	for _, candidate := range webdCandidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return webctlSourcePath, candidate, nil
+		}
 	}
 
-	return webctlSourcePath, webdSourcePath, nil
+	return "", "", fmt.Errorf("locate webd binary near webctl failed (checked %s and %s)", webdCandidates[0], webdCandidates[1])
 }
 
 func buildVersionDirName() (string, error) {

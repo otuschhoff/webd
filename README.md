@@ -72,7 +72,7 @@ Generate shell completion (hidden command; useful for package/integration script
 ```
 
 `webctl setup` also refreshes system shell completion files for `webctl` (bash, zsh, fish, tcsh) so the OS has the current command set.
-It also installs root profile snippets so the `webctl` binary directory is in root's `PATH`.
+It also installs root profile snippets so `/opt/webd/current/sbin` (the installed `webctl` subdir) is in root's `PATH`.
 
 Request and deploy a Let's Encrypt certificate (root required):
 
@@ -363,9 +363,9 @@ What the service does:
 
 - Runs `webd` as user/group `webd` (non-root service user).
 - Uses `RuntimeDirectory=webd` so runtime artifacts live under `/run/webd`.
-- Executes `ExecStartPre=+.../webctl reload --prepare-only` as root to stage `/run/webd/config.json`, `/run/webd/tls.crt`, `/run/webd/tls.key`, and staged trusted CA files before daemon start.
+- Executes `ExecStartPre=+/opt/webd/current/sbin/webctl reload --prepare-only` as root to stage `/run/webd/config.json`, `/run/webd/tls.crt`, `/run/webd/tls.key`, and staged trusted CA files before daemon start.
 - Starts `webd` via `ExecStart=/opt/webd/current/libexec/webd`.
-- Supports in-place reload via `ExecReload=+.../webctl reload`, which stages runtime artifacts then sends `SIGHUP`.
+- Supports in-place reload via `ExecReload=+/opt/webd/current/sbin/webctl reload`, which stages runtime artifacts then sends `SIGHUP`.
 
 Security and isolation model:
 
