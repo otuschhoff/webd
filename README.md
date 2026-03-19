@@ -72,6 +72,7 @@ Generate shell completion (hidden command; useful for package/integration script
 ```
 
 `webctl setup` also refreshes system shell completion files for `webctl` (bash, zsh, fish, tcsh) so the OS has the current command set.
+It also installs root profile snippets so the `webctl` binary directory is in root's `PATH`.
 
 Request and deploy a Let's Encrypt certificate (root required):
 

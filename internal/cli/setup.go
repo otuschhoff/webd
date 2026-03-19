@@ -114,6 +114,10 @@ func runSetup(opts SetupOptions) error {
 		fmt.Printf("ensured versioned install webd=%s webctl=%s\n", installedWebdPath, installedWebctlPath)
 	}
 
+	if err := ensureRootPathIncludesWebctlDir(DefaultWebctlPath); err != nil {
+		return err
+	}
+
 	if err := ensureWebctlShellCompletions(DefaultWebctlPath); err != nil {
 		return err
 	}
@@ -166,6 +170,48 @@ func ensureWebctlShellCompletions(webctlPath string) error {
 			fmt.Printf("updated webctl %s completion: %s\n", target.shell, target.path)
 		} else {
 			fmt.Printf("webctl %s completion already up-to-date: %s\n", target.shell, target.path)
+		}
+	}
+
+	return nil
+}
+
+func ensureRootPathIncludesWebctlDir(webctlPath string) error {
+	webctlDir := filepath.Clean(filepath.Dir(strings.TrimSpace(webctlPath)))
+	if webctlDir == "." || webctlDir == "/" || webctlDir == "" {
+		return fmt.Errorf("invalid webctl path for PATH setup: %q", webctlPath)
+	}
+
+	shScriptPath := "/etc/profile.d/webctl-path.sh"
+	shContent := fmt.Sprintf(`# Ensure root can run webctl without absolute path.
+if [ "$(id -u)" -eq 0 ]; then
+	case ":${PATH}:" in
+		*:%s:*) ;;
+		*) export PATH="${PATH}:%s" ;;
+	esac
+fi
+`, webctlDir, webctlDir)
+
+	cshScriptPath := "/etc/profile.d/webctl-path.csh"
+	cshContent := fmt.Sprintf("# Ensure root can run webctl without absolute path.\nif ( \"`id -u`\" == \"0\" ) then\n\tif ( \"$?PATH\" ) then\n\t\tif ( \":${PATH}:\" !~ *\":%s:\"* ) setenv PATH \"${PATH}:%s\"\n\telse\n\t\tsetenv PATH \"%s\"\n\tendif\nendif\n", webctlDir, webctlDir, webctlDir)
+
+	targets := []struct {
+		path    string
+		content string
+	}{
+		{path: shScriptPath, content: shContent},
+		{path: cshScriptPath, content: cshContent},
+	}
+
+	for _, target := range targets {
+		changed, err := writeTextFileIfChanged(target.path, target.content, 0o644)
+		if err != nil {
+			return err
+		}
+		if changed {
+			fmt.Printf("updated root PATH profile script: %s\n", target.path)
+		} else {
+			fmt.Printf("root PATH profile script already up-to-date: %s\n", target.path)
 		}
 	}
 
