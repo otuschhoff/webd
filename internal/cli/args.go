@@ -43,6 +43,54 @@ func ExecuteControl() error {
 	reloadCmd.Flags().BoolVar(&reloadOpts.OnlyLocalTLS, "only-local-tls", reloadOpts.OnlyLocalTLS, "Only compare and stage local TLS cert/key files; skip runtime config and handler trust material updates")
 	reloadCmd.Flags().BoolVar(&reloadOpts.PrepareOnly, "prepare-only", reloadOpts.PrepareOnly, "Only stage runtime TLS files without signaling running process")
 
+	reloadTimerInterval := defaultReloadTimerPeriod
+	reloadTimerCmd := &cobra.Command{
+		Use:   "reload-timer",
+		Short: "Manage periodic local TLS refresh timer for webd",
+	}
+	reloadTimerAddCmd := &cobra.Command{
+		Use:           "add",
+		Short:         "Install and enable daily local TLS refresh timer",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReloadTimerAdd(reloadTimerInterval)
+		},
+	}
+	reloadTimerAddCmd.Flags().StringVarP(&reloadTimerInterval, "interval", "i", reloadTimerInterval, "Timer interval (e.g. 10m, 1h, 12h, 1d)")
+
+	reloadTimerShowCmd := &cobra.Command{
+		Use:           "show",
+		Short:         "Show current reload timer setup and runtime state",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReloadTimerShow()
+		},
+	}
+
+	reloadTimerModifyCmd := &cobra.Command{
+		Use:           "modify",
+		Short:         "Modify reload timer settings",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReloadTimerModify(reloadTimerInterval)
+		},
+	}
+	reloadTimerModifyCmd.Flags().StringVarP(&reloadTimerInterval, "interval", "i", reloadTimerInterval, "Timer interval (e.g. 10m, 1h, 12h, 1d)")
+
+	reloadTimerDeleteCmd := &cobra.Command{
+		Use:           "delete",
+		Short:         "Disable and remove reload timer",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReloadTimerDelete()
+		},
+	}
+	reloadTimerCmd.AddCommand(reloadTimerAddCmd, reloadTimerShowCmd, reloadTimerModifyCmd, reloadTimerDeleteCmd)
+
 	checkCmd := &cobra.Command{
 		Use:           "check",
 		Short:         "Validate config and print it in pretty colored YAML",
@@ -90,6 +138,6 @@ func ExecuteControl() error {
 	letsEncryptCmd.Flags().StringVar(&letsEncryptOpts.KeyPath, "key-path", letsEncryptOpts.KeyPath, "Path to save private key PEM")
 	letsEncryptCmd.Flags().BoolVar(&letsEncryptOpts.Deploy, "deploy", letsEncryptOpts.Deploy, "Deploy to running webd after issuance")
 
-	rootCmd.AddCommand(reloadCmd, checkCmd, setupCmd, letsEncryptCmd)
+	rootCmd.AddCommand(reloadCmd, reloadTimerCmd, checkCmd, setupCmd, letsEncryptCmd)
 	return rootCmd.Execute()
 }

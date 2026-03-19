@@ -41,6 +41,17 @@ By default, `webctl reload` only signals `webd` when staged runtime outputs unde
 Use `./bin/webctl reload --force` (or `-f`) to send `SIGHUP` even when nothing changed.
 Use `./bin/webctl reload --only-local-tls` to compare and stage only local TLS cert/key files, skipping config and handler trust-material updates.
 
+Manage an automated local TLS refresh timer (root required for add/modify/delete):
+
+```sh
+sudo ./bin/webctl reload-timer add --interval 1d
+./bin/webctl reload-timer show
+sudo ./bin/webctl reload-timer modify --interval 12h
+sudo ./bin/webctl reload-timer delete
+```
+
+The timer name is `webd-local-tls-update.timer` and it runs `webctl reload --only-local-tls` as root on the configured interval.
+
 Validate and pretty-print config:
 
 ```sh
