@@ -436,11 +436,15 @@ func ensureVersionedInstall() (string, string, error) {
 	}
 
 	if needsLinkUpdate {
+		relTarget, err := filepath.Rel(filepath.Dir(currentLink), newestVersionDir)
+		if err != nil {
+			return "", "", fmt.Errorf("compute relative path for current symlink: %w", err)
+		}
 		if err := os.Remove(currentLink); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return "", "", fmt.Errorf("remove existing current symlink %s: %w", currentLink, err)
 		}
-		if err := os.Symlink(newestVersionDir, currentLink); err != nil {
-			return "", "", fmt.Errorf("create current symlink %s -> %s: %w", currentLink, newestVersionDir, err)
+		if err := os.Symlink(relTarget, currentLink); err != nil {
+			return "", "", fmt.Errorf("create current symlink %s -> %s: %w", currentLink, relTarget, err)
 		}
 	}
 
@@ -483,36 +487,11 @@ func resolveInstallSourceBinaries() (string, string, error) {
 }
 
 func buildVersionDirName() (string, error) {
-	baseVersion := strings.TrimSpace(app.Version)
-	if baseVersion == "" || baseVersion == "unknown" {
-		return "", fmt.Errorf("application version is not set; cannot manage versioned install path")
+	vs := app.VersionString()
+	if vs == "" || vs == app.Version {
+		return "", fmt.Errorf("application build metadata (BuildTime/CommitSHA) is not set; cannot manage versioned install path")
 	}
-	baseVersion = strings.TrimPrefix(baseVersion, "v")
-	if baseVersion == "" {
-		return "", fmt.Errorf("application version %q is invalid for install path", app.Version)
-	}
-
-	buildTimeRaw := strings.TrimSpace(app.BuildTime)
-	if buildTimeRaw == "" || buildTimeRaw == "unknown" {
-		return "", fmt.Errorf("application build time is not set; cannot manage versioned install path")
-	}
-
-	buildTime, err := parseBuildTime(buildTimeRaw)
-	if err != nil {
-		return "", fmt.Errorf("invalid build time %q: %w", buildTimeRaw, err)
-	}
-
-	return fmt.Sprintf("%s-%s", baseVersion, buildTime.UTC().Format("20060102T150405Z")), nil
-}
-
-func parseBuildTime(input string) (time.Time, error) {
-	if ts, err := time.Parse(time.RFC3339, input); err == nil {
-		return ts, nil
-	}
-	if ts, err := time.Parse("20060102T150405Z", input); err == nil {
-		return ts, nil
-	}
-	return time.Time{}, fmt.Errorf("must be RFC3339 or 20060102T150405Z")
+	return strings.TrimPrefix(vs, "v"), nil
 }
 
 func newestInstalledVersionDir(root string) (string, error) {
@@ -548,19 +527,29 @@ func newestInstalledVersionDir(root string) (string, error) {
 }
 
 func looksLikeVersion(name string) bool {
-	parts := strings.Split(name, "-")
-	if len(parts) != 2 {
+	// Expected: <semver>-<YYYYMMDD>-<hhmmss>.<commitSha>
+	// e.g. 0.1.1-20260319-143022.abc1234
+	parts := strings.SplitN(name, "-", 3)
+	if len(parts) != 3 {
 		return false
 	}
-	if parts[0] == "" || parts[1] == "" {
+	semver, date, timesha := parts[0], parts[1], parts[2]
+	if semver == "" || date == "" || timesha == "" {
 		return false
 	}
-	for _, r := range parts[0] {
+	for _, r := range semver {
 		if (r < '0' || r > '9') && r != '.' {
 			return false
 		}
 	}
-	_, err := time.Parse("20060102T150405Z", parts[1])
+	if _, err := time.Parse("20060102", date); err != nil {
+		return false
+	}
+	dotIdx := strings.IndexByte(timesha, '.')
+	if dotIdx < 0 || dotIdx == len(timesha)-1 {
+		return false
+	}
+	_, err := time.Parse("150405", timesha[:dotIdx])
 	return err == nil
 }
 
