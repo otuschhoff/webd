@@ -114,6 +114,10 @@ func runSetup(opts SetupOptions) error {
 		fmt.Printf("ensured versioned install webd=%s webctl=%s\n", installedWebdPath, installedWebctlPath)
 	}
 
+	if err := ensureWebctlShellCompletions(DefaultWebctlPath); err != nil {
+		return err
+	}
+
 	if err := ensureSystemdVersionForUnit(ServiceUnitContent); err != nil {
 		return err
 	}
@@ -134,6 +138,65 @@ func runSetup(opts SetupOptions) error {
 
 	fmt.Println("setup complete")
 	return nil
+}
+
+type shellCompletionTarget struct {
+	shell string
+	path  string
+}
+
+func ensureWebctlShellCompletions(webctlPath string) error {
+	targets := []shellCompletionTarget{
+		{shell: "bash", path: "/usr/share/bash-completion/completions/webctl"},
+		{shell: "zsh", path: "/usr/share/zsh/site-functions/_webctl"},
+		{shell: "fish", path: "/usr/share/fish/vendor_completions.d/webctl.fish"},
+		{shell: "tcsh", path: "/etc/profile.d/webctl.csh"},
+	}
+
+	for _, target := range targets {
+		content, err := generateShellCompletion(webctlPath, target.shell)
+		if err != nil {
+			return err
+		}
+		changed, err := writeTextFileIfChanged(target.path, content, 0o644)
+		if err != nil {
+			return err
+		}
+		if changed {
+			fmt.Printf("updated webctl %s completion: %s\n", target.shell, target.path)
+		} else {
+			fmt.Printf("webctl %s completion already up-to-date: %s\n", target.shell, target.path)
+		}
+	}
+
+	return nil
+}
+
+func generateShellCompletion(webctlPath, shell string) (string, error) {
+	cmd := exec.Command(webctlPath, "completion", shell)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("generate %s completion using %s: %v: %s", shell, webctlPath, err, strings.TrimSpace(string(out)))
+	}
+	return string(out), nil
+}
+
+func writeTextFileIfChanged(path, content string, mode os.FileMode) (bool, error) {
+	if existing, err := os.ReadFile(path); err == nil {
+		if string(existing) == content {
+			return false, nil
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return false, fmt.Errorf("read existing file %s: %w", path, err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return false, fmt.Errorf("create directory for %s: %w", path, err)
+	}
+	if err := os.WriteFile(path, []byte(content), mode); err != nil {
+		return false, fmt.Errorf("write %s: %w", path, err)
+	}
+	return true, nil
 }
 
 func ensureEtcConfig(webdGroup int) error {

@@ -64,6 +64,15 @@ Host setup (root required):
 sudo ./bin/webctl setup
 ```
 
+Generate shell completion (hidden command; useful for package/integration scripts):
+
+```sh
+./bin/webctl completion bash
+./bin/webctl completion tcsh
+```
+
+`webctl setup` also refreshes system shell completion files for `webctl` (bash, zsh, fish, tcsh) so the OS has the current command set.
+
 Request and deploy a Let's Encrypt certificate (root required):
 
 ```sh

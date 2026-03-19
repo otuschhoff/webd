@@ -18,6 +18,7 @@ func ExecuteControl() error {
 		Short:   "HTTPS proxy control-plane commands",
 		Version: app.VersionString(),
 	}
+	addCompletionCommand(rootCmd)
 
 	rootCmd.PersistentFlags().StringVar(&runOpts.ConfigPath, "config", runOpts.ConfigPath, "Path to YAML reverse-proxy config")
 	rootCmd.PersistentFlags().StringVar(&runOpts.HTTPAddr, "http-addr", runOpts.HTTPAddr, "HTTP listen address")
