@@ -25,6 +25,9 @@ func VersionString() string {
 	if bt == "" || bt == "unknown" || cs == "" || cs == "unknown" {
 		return Version
 	}
+	if len(cs) > 7 {
+		cs = cs[:7]
+	}
 
 	var t time.Time
 	for _, layout := range []string{time.RFC3339, "20060102T150405Z"} {
