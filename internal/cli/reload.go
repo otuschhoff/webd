@@ -30,6 +30,7 @@ type Options struct {
 	HTTPSAddr     string
 	RunUser       string
 	Force         bool
+	OnlyLocalTLS  bool
 	ConfigSource  string
 	ConfigDest    string
 	TLSCertSource string
@@ -46,6 +47,7 @@ func DefaultOptions() Options {
 		HTTPSAddr:     DefaultHTTPSAddr,
 		RunUser:       DefaultRunUser,
 		Force:         false,
+		OnlyLocalTLS:  false,
 		ConfigSource:  DefaultConfigPath,
 		ConfigDest:    DefaultRuntimeConfigPath,
 		TLSCertSource: DefaultTLSSourceCertPath,
@@ -104,12 +106,21 @@ func Run(opts Options) error {
 		}
 	}
 
-	artifactsChanged, err := stageTLSArtifacts(opts, runUID, runGID)
+	var artifactsChanged bool
+	if opts.OnlyLocalTLS {
+		artifactsChanged, err = stageOnlyLocalTLSArtifacts(opts, runUID, runGID)
+	} else {
+		artifactsChanged, err = stageTLSArtifacts(opts, runUID, runGID)
+	}
 	if err != nil {
 		errLog.Printf("reload staging failed err=%v", err)
 		return err
 	}
-	opsLog.Printf("staged runtime artifacts config=%s cert=%s key=%s owner=%s", opts.ConfigDest, opts.TLSCertDest, opts.TLSKeyDest, opts.RunUser)
+	if opts.OnlyLocalTLS {
+		opsLog.Printf("staged runtime tls artifacts cert=%s key=%s owner=%s mode=only-local-tls", opts.TLSCertDest, opts.TLSKeyDest, opts.RunUser)
+	} else {
+		opsLog.Printf("staged runtime artifacts config=%s cert=%s key=%s owner=%s", opts.ConfigDest, opts.TLSCertDest, opts.TLSKeyDest, opts.RunUser)
+	}
 
 	if !artifactsChanged {
 		if opts.Force {
@@ -231,6 +242,20 @@ func stageTLSArtifacts(opts Options, uid, gid int) (bool, error) {
 		return false, err
 	}
 
+	localTLSChanged, err := stageLocalTLSArtifacts(opts, uid, gid)
+	if err != nil {
+		return false, err
+	}
+
+	return configChanged || localTLSChanged, nil
+}
+
+func stageOnlyLocalTLSArtifacts(opts Options, uid, gid int) (bool, error) {
+	return stageLocalTLSArtifacts(opts, uid, gid)
+}
+
+func stageLocalTLSArtifacts(opts Options, uid, gid int) (bool, error) {
+
 	if err := validateTLSBundleOrder(opts.TLSCertSource); err != nil {
 		return false, fmt.Errorf("validate tls cert bundle order: %w", err)
 	}
@@ -255,7 +280,7 @@ func stageTLSArtifacts(opts Options, uid, gid int) (bool, error) {
 		}
 	}
 
-	return configChanged || certChanged || keyChanged, nil
+	return certChanged || keyChanged, nil
 }
 
 func stageConfigArtifact(opts Options, uid, gid int) (bool, error) {

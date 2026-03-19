@@ -40,6 +40,7 @@ func ExecuteControl() error {
 	reloadCmd.Flags().StringVar(&reloadOpts.TLSCertSource, "tls-cert-source", reloadOpts.TLSCertSource, "Source TLS certificate path copied into runtime TLS path")
 	reloadCmd.Flags().StringVar(&reloadOpts.TLSKeySource, "tls-key-source", reloadOpts.TLSKeySource, "Source TLS private key path copied into runtime TLS path")
 	reloadCmd.Flags().BoolVarP(&reloadOpts.Force, "force", "f", reloadOpts.Force, "Reload even when staged runtime artifacts are unchanged")
+	reloadCmd.Flags().BoolVar(&reloadOpts.OnlyLocalTLS, "only-local-tls", reloadOpts.OnlyLocalTLS, "Only compare and stage local TLS cert/key files; skip runtime config and handler trust material updates")
 	reloadCmd.Flags().BoolVar(&reloadOpts.PrepareOnly, "prepare-only", reloadOpts.PrepareOnly, "Only stage runtime TLS files without signaling running process")
 
 	checkCmd := &cobra.Command{

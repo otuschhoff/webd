@@ -39,6 +39,7 @@ Reload config + TLS on a running process:
 
 By default, `webctl reload` only signals `webd` when staged runtime outputs under `/run/webd` actually changed.
 Use `./bin/webctl reload --force` (or `-f`) to send `SIGHUP` even when nothing changed.
+Use `./bin/webctl reload --only-local-tls` to compare and stage only local TLS cert/key files, skipping config and handler trust-material updates.
 
 Validate and pretty-print config:
 
@@ -332,7 +333,7 @@ Control-plane reload (`webctl reload` and `--prepare-only`):
 2. `internal/cli/root.go:ExecuteControl` builds the Cobra root command, wires the `reload` subcommand, copies persistent flag values into `reload.Options`, and calls `internal/cli/reload.go:Run`.
 3. `Run` requires root, resolves the runtime user with `lookupRunUser`, validates the runtime directory layout with `validateRunTLSDirs`, and creates/chowns `/run/webd` with `ensureRuntimeTLSDir`.
 4. If `PrepareOnly` is false, `Run` locates live daemon PIDs with `findHTTPSDPIDs` and verifies that the configured HTTP/HTTPS listen ports are owned by those processes with `ensurePortsBoundByHTTPSD`.
-5. `Run` stages all runtime artifacts through `stageTLSArtifacts`.
+5. `Run` stages all runtime artifacts through `stageTLSArtifacts`, or only local TLS cert/key artifacts through `stageOnlyLocalTLSArtifacts` when `--only-local-tls` is set.
 6. `stageTLSArtifacts` first calls `stageConfigArtifact`, which loads the YAML source config with `internal/cli/config.go:Load`, converts it to runtime JSON with `buildRuntimeConfig`, and writes `/run/webd/config.json` atomically.
 7. `buildRuntimeConfig` translates `allowed_ipv4` entries into numeric `start`/`end` IPv4 ranges for the runtime JSON, emits redirect routes directly, and for handler routes uses `buildRuntimeHandler` to resolve `ipv4_addresses` and stage `trusted_ca` runtime files when configured.
 8. For handlers with `trusted_ca`, `stageTrustedCA` verifies the handler against the local CA file by calling `fetchVerifiedHandlerCACerts`; for `https`/`wss` handlers without `trusted_ca`, `stageAutoTrustedCA` verifies against the OS trust store via `fetchVerifiedHandlerOSCACerts` and stages the detected issuing/root CA chain. Both paths write `/run/webd/ca-<name>.crt` with `writeTrustedCAFile`.
