@@ -135,7 +135,7 @@ Rules:
 - `trusted_ca` cannot be used with `redirect` routes.
 - `trusted_ca.name` may contain only letters, digits, `.`, `_`, and `-`.
 - `trusted_ca.cert_path` must point to a PEM CA bundle that `webctl reload` can read.
-- Longest `path` wins.
+- Most specific `path` wins (longest prefix match).
 
 Config examples:
 
