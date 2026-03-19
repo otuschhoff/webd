@@ -332,61 +332,62 @@ Implementation call flow:
 
 Server startup (`webd`):
 
-1. `cmd/webd/main.go:main` creates syslog loggers with `syslogx.New`, rejects flags/subcommands, validates the effective UID range, and verifies the required runtime files under `/run/webd`.
-2. `main` builds `app.RunOptions` and calls `server.Run`.
-3. `internal/server/server.go:Run` creates the daemon loggers, loads the runtime JSON with `LoadJSON`, and validates it through `internal/server/config.go:Validate`.
-4. `Run` builds route handlers with `buildRouteProxies`; handler routes use `handlerURL`, `httputil.NewSingleHostReverseProxy`, a wrapped `Director` that calls `setForwardedHeaders`, and `newStaticHandlerTransport`, while redirect routes keep only a redirect target URL.
-5. `newStaticHandlerTransport` clones `http.DefaultTransport`, dials only the staged `ipv4_addresses`, and, for HTTPS handlers, loads the staged CA bundle with `loadTrustedCertPool` and sets `TLSClientConfig.ServerName` to the handler hostname.
-6. `Run` wraps the router with `accessLogMiddleware`, creates the TLS reloader with `newCertReloader`, then starts the cleartext server with `http.Server.ListenAndServe` and the TLS server with `tls.Listen` plus `http.Server.Serve`.
-7. `Run` also installs a `SIGHUP` handler that reloads the runtime config with `LoadJSON`, rebuilds routes with `buildRouteProxies`, swaps them atomically, and refreshes the serving certificate with `certReloader.Reload`.
+1. `cmd/webd/main.go:main` initializes logging, rejects flags/subcommands, checks runtime EUID range, and verifies required runtime files in `/run/webd`.
+2. `main` builds `server.RunOptions` and calls `internal/server/server.go:Run`.
+3. `Run` loads runtime JSON, validates config, builds route handlers with `buildRouteProxies`, and starts both HTTP and HTTPS listeners.
+4. The request router in `internal/server/handler.go` serves ACME challenge requests first, then applies global HTTP→HTTPS redirects for non-ACME cleartext requests, then evaluates configured routes.
+5. Proxy routes use `httputil.ReverseProxy` with forwarded-header enrichment (`handleProxyForwardedHeaders`) and transport dialing over staged IPv4 addresses (`handleProxyTransport`) to avoid request-time DNS lookups.
+6. `Run` installs `SIGHUP` handling to atomically reload runtime config/routes and refresh serving cert/key without full process restart.
 
-HTTP request proxying:
+Control-plane reload (`webctl reload`):
 
-1. The per-request handler created inside `internal/server/server.go:Run` reads the current route table from `atomic.Value` and picks the first prefix match, after `buildRouteProxies` sorted routes by descending prefix length.
-2. The matched route either returns `301 Moved Permanently` to its configured `redirect` URL or executes `routeProxy.proxy.ServeHTTP` for handler proxy routes.
-3. The proxy `Director` first applies the standard handler rewrite from `httputil.NewSingleHostReverseProxy`, then calls `setForwardedHeaders` to set `X-Real-IP`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port`, and `Forwarded`.
-4. The proxy transport is the `http.RoundTripper` returned by `newStaticHandlerTransport`; it uses a custom `DialContext` to try the staged IPv4 list in order and connects to `hostname:port` only for TLS verification and URL shaping, not for DNS resolution.
-5. For HTTPS handlers, the transport verifies the peer certificate against either the system pool or the staged `trusted_ca` bundle loaded by `loadTrustedCertPool`.
-6. Proxy failures are handled by the custom `ErrorHandler` installed in `buildRouteProxies`, which returns `502 Bad Gateway` and logs the handler/path/error.
-7. The outer `accessLogMiddleware` records the final status, response size, duration, method, URI, and client IP after the proxied request completes.
+1. `cmd/webctl/main.go:main` invokes `internal/cli/args.go:ExecuteControl`.
+2. `reload` staging in `internal/cli/reload.go:Run` requires root, validates runtime destination layout, and prepares `/run/webd` ownership/permissions.
+3. Default mode stages runtime config + trust artifacts + local TLS cert/key, then signals running `webd` only when staged outputs changed (unless `--force`).
+4. `--only-local-tls` mode stages only local cert/key artifacts and signals only when those changed (unless `--force`).
+5. `--prepare-only` stages artifacts but does not signal running processes.
 
-Control-plane reload (`webctl reload` and `--prepare-only`):
+Control-plane setup (`webctl setup`):
 
-1. `cmd/webctl/main.go:main` creates command loggers with `syslogx.NewForCommand` and calls `cli.ExecuteControl`.
-2. `internal/cli/root.go:ExecuteControl` builds the Cobra root command, wires the `reload` subcommand, copies persistent flag values into `reload.Options`, and calls `internal/cli/reload.go:Run`.
-3. `Run` requires root, resolves the runtime user with `lookupRunUser`, validates the runtime directory layout with `validateRunTLSDirs`, and creates/chowns `/run/webd` with `ensureRuntimeTLSDir`.
-4. If `PrepareOnly` is false, `Run` locates live daemon PIDs with `findHTTPSDPIDs` and verifies that the configured HTTP/HTTPS listen ports are owned by those processes with `ensurePortsBoundByHTTPSD`.
-5. `Run` stages all runtime artifacts through `stageTLSArtifacts`, or only local TLS cert/key artifacts through `stageOnlyLocalTLSArtifacts` when `--only-local-tls` is set.
-6. `stageTLSArtifacts` first calls `stageConfigArtifact`, which loads the YAML source config with `internal/cli/config.go:Load`, converts it to runtime JSON with `buildRuntimeConfig`, and writes `/run/webd/config.json` atomically.
-7. `buildRuntimeConfig` translates `allowed_ipv4` entries into numeric `start`/`end` IPv4 ranges for the runtime JSON, emits redirect routes directly, and for handler routes uses `buildRuntimeHandler` to resolve `ipv4_addresses` and stage `trusted_ca` runtime files when configured.
-8. For handlers with `trusted_ca`, `stageTrustedCA` verifies the handler against the local CA file by calling `fetchVerifiedHandlerCACerts`; for `https`/`wss` handlers without `trusted_ca`, `stageAutoTrustedCA` verifies against the OS trust store via `fetchVerifiedHandlerOSCACerts` and stages the detected issuing/root CA chain. Both paths write `/run/webd/ca-<name>.crt` with `writeTrustedCAFile`.
-9. After the runtime JSON is staged, `stageTLSArtifacts` validates the configured server certificate chain order with `validateTLSBundleOrder`, then copies the TLS certificate and key into `/run/webd/tls.crt` and `/run/webd/tls.key` with `copyFileAtomic` and fixes ownership.
-10. If `PrepareOnly` is true, `Run` stops here after logging `prepare-only mode complete`; no process discovery or signal delivery happens.
-11. If staged outputs are unchanged and `--force` is not set, `Run` logs a no-change result and exits without signaling.
-12. Otherwise, `Run` sends `SIGHUP` to each discovered daemon PID with `syscall.Kill`, which triggers the in-process reload path in `internal/server/server.go:Run`.
+1. Requires root and validates/creates service identity (`webd` user/group and `tlskey` membership).
+2. Verifies source TLS materials and provisions `/etc/webd/config.yaml` if absent.
+3. Installs versioned binaries under `/opt/webd/<version>/` and updates `/opt/webd/current`.
+4. Refreshes system shell completions and root PATH snippets for `webctl`.
+5. Writes/updates `/etc/systemd/system/webd.service` and runs `systemctl daemon-reload` when needed.
 
-Control-plane config check (`webctl check`):
+## systemd webd.service details
 
-1. `cmd/webctl/main.go:main` creates command loggers with `syslogx.NewForCommand` and calls `cli.ExecuteControl`.
-2. `internal/cli/root.go:ExecuteControl` wires the `check` subcommand and calls `runCheck` with the shared `app.RunOptions` values from the persistent flags.
-3. `internal/cli/check.go:runCheck` loads and validates the YAML config with `internal/cli/config.go:Load`, renders it with `PrettyYAML`, and prints it through `ColorizeYAML`.
-4. `runCheck` performs port checks with `checkBindPort`, which resolves the configured port, inspects `/proc` listener ownership through `findPortOwners`, and reports either a free port or the owning processes.
-5. `runCheck` performs handler checks with `checkHandlers`; each distinct handler URL is parsed, then either a plain TCP connection is attempted for `http` or a TLS handshake is attempted for `https`.
-6. For HTTPS handlers with `trusted_ca`, `checkHandlers` loads the configured CA bundle with `loadTrustedCAPool` and uses it as `RootCAs`; otherwise it falls back to an insecure probe handshake that only checks reachability.
-7. `runCheck` validates the local serving certificate and key with `checkTLSMaterials`, which reads both PEM files, verifies `tls.X509KeyPair`, parses the certificate chain with `parseCertificatesFromPEM`, checks ordering/signatures, and verifies that the leaf SAN matches one of the local host candidates from `hostCandidates`.
-8. If any port, handler, or TLS check fails, `runCheck` returns a combined error summary; otherwise it prints `check OK`.
+`webctl setup` manages a hardened systemd unit at `/etc/systemd/system/webd.service`.
 
-Control-plane host setup (`webctl setup`):
+What the service does:
 
-1. `cmd/webctl/main.go:main` creates command loggers with `syslogx.NewForCommand` and calls `cli.ExecuteControl`.
-2. `internal/cli/root.go:ExecuteControl` wires the `setup` subcommand, binds the setup-specific flags, and calls `runSetup` with `app.SetupOptions`.
-3. `internal/cli/setup.go:runSetup` requires root, then creates or validates the `webd` and `tlskey` groups with `ensureGroupExists` and the `webd` user with `ensureUserExists`.
-4. `runSetup` ensures the `webd` user is a member of `tlskey` via `ensureUserInGroup`, then verifies the resulting account layout with `validateServiceIdentity` and `validateAccountDatabases`.
-5. `runSetup` checks that the configured TLS key and certificate files exist, then provisions `/etc/webd` and the default config file via `ensureEtcConfig`.
-6. `runSetup` stages the current binary into the versioned install tree with `ensureVersionedInstall`; that helper derives the versioned path from `app.Version` and `app.BuildTime` using `buildVersionDirName`, copies the executable into `/opt/webd/<version>/libexec/webd`, and refreshes `/opt/webd/current` to point at the newest installed version.
-7. `runSetup` removes any file capabilities from the configured binary path with `ensureNoFileCapabilities`; low-port bind permission is then supplied only by systemd `AmbientCapabilities`.
-8. `runSetup` writes or validates the systemd unit with `ensureSystemdUnit`; if the unit changed, it runs `daemonReload` to execute `systemctl daemon-reload`.
-9. `runSetup` finishes by printing `setup complete` after the host account, config, binary install, capability, and systemd state all match the expected layout.
+- Runs `webd` as user/group `webd` (non-root service user).
+- Uses `RuntimeDirectory=webd` so runtime artifacts live under `/run/webd`.
+- Executes `ExecStartPre=+.../webctl reload --prepare-only` as root to stage `/run/webd/config.json`, `/run/webd/tls.crt`, `/run/webd/tls.key`, and staged trusted CA files before daemon start.
+- Starts `webd` via `ExecStart=/opt/webd/current/libexec/webd`.
+- Supports in-place reload via `ExecReload=+.../webctl reload`, which stages runtime artifacts then sends `SIGHUP`.
+
+Security and isolation model:
+
+- `CapabilityBoundingSet=CAP_NET_BIND_SERVICE` and `AmbientCapabilities=CAP_NET_BIND_SERVICE` allow low-port binding without running as root.
+- `RootDirectory=/run/webd` plus bind mounts expose only required binaries/log sockets and keeps runtime file scope minimal.
+- Additional hardening includes `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome=true`, `PrivateDevices=true`, restricted namespaces/address families, and syscall filters.
+
+Operational behavior:
+
+- `Restart=on-failure` automatically restarts on crash.
+- Memory limits are enforced with `MemoryMax` and `GOMEMLIMIT` derived from defaults in `internal/cli/defaults.go`.
+- Setup is idempotent: rerunning `webctl setup` updates the unit only when content differs.
+
+Useful commands:
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now webd.service
+sudo systemctl status webd.service
+sudo systemctl reload webd.service
+journalctl -u webd.service -f
+```
 
 ## Build From Source (xc)
 
