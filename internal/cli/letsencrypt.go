@@ -150,7 +150,7 @@ func RunLetsEncrypt(opts LetsEncryptOptions) error {
 		}
 
 		tokenPath := filepath.Join(opts.ChallengeDir, filepath.Base(httpChallenge.Token))
-		if err := writeFileAtomic(tokenPath, []byte(keyAuth), 0o644); err != nil {
+		if _, err := writeFileAtomic(tokenPath, []byte(keyAuth), 0o644); err != nil {
 			return fmt.Errorf("write challenge token %s: %w", tokenPath, err)
 		}
 		if err := os.Chown(tokenPath, runUID, runGID); err != nil {
@@ -203,10 +203,10 @@ func RunLetsEncrypt(opts LetsEncryptOptions) error {
 	}
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
 
-	if err := writeFileAtomic(opts.CertPath, certPEM, 0o644); err != nil {
+	if _, err := writeFileAtomic(opts.CertPath, certPEM, 0o644); err != nil {
 		return fmt.Errorf("write cert chain to %s: %w", opts.CertPath, err)
 	}
-	if err := writeFileAtomic(opts.KeyPath, keyPEM, 0o600); err != nil {
+	if _, err := writeFileAtomic(opts.KeyPath, keyPEM, 0o600); err != nil {
 		return fmt.Errorf("write private key to %s: %w", opts.KeyPath, err)
 	}
 	opsLog.Printf("saved letsencrypt certificate host=%q cert=%q key=%q", host, opts.CertPath, opts.KeyPath)

@@ -37,6 +37,9 @@ Reload config + TLS on a running process:
 ./bin/webctl reload
 ```
 
+By default, `webctl reload` only signals `webd` when staged runtime outputs under `/run/webd` actually changed.
+Use `./bin/webctl reload --force` (or `-f`) to send `SIGHUP` even when nothing changed.
+
 Validate and pretty-print config:
 
 ```sh
@@ -335,7 +338,8 @@ Control-plane reload (`webctl reload` and `--prepare-only`):
 8. For handlers with `trusted_ca`, `stageTrustedCA` verifies the handler against the local CA file by calling `fetchVerifiedHandlerCACerts`; for `https`/`wss` handlers without `trusted_ca`, `stageAutoTrustedCA` verifies against the OS trust store via `fetchVerifiedHandlerOSCACerts` and stages the detected issuing/root CA chain. Both paths write `/run/webd/ca-<name>.crt` with `writeTrustedCAFile`.
 9. After the runtime JSON is staged, `stageTLSArtifacts` validates the configured server certificate chain order with `validateTLSBundleOrder`, then copies the TLS certificate and key into `/run/webd/tls.crt` and `/run/webd/tls.key` with `copyFileAtomic` and fixes ownership.
 10. If `PrepareOnly` is true, `Run` stops here after logging `prepare-only mode complete`; no process discovery or signal delivery happens.
-11. Otherwise, `Run` sends `SIGHUP` to each discovered daemon PID with `syscall.Kill`, which triggers the in-process reload path in `internal/server/server.go:Run`.
+11. If staged outputs are unchanged and `--force` is not set, `Run` logs a no-change result and exits without signaling.
+12. Otherwise, `Run` sends `SIGHUP` to each discovered daemon PID with `syscall.Kill`, which triggers the in-process reload path in `internal/server/server.go:Run`.
 
 Control-plane config check (`webctl check`):
 

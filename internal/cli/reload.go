@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"io"
 	"net"
 	"net/url"
 	"os"
@@ -30,6 +29,7 @@ type Options struct {
 	HTTPAddr      string
 	HTTPSAddr     string
 	RunUser       string
+	Force         bool
 	ConfigSource  string
 	ConfigDest    string
 	TLSCertSource string
@@ -45,6 +45,7 @@ func DefaultOptions() Options {
 		HTTPAddr:      DefaultHTTPAddr,
 		HTTPSAddr:     DefaultHTTPSAddr,
 		RunUser:       DefaultRunUser,
+		Force:         false,
 		ConfigSource:  DefaultConfigPath,
 		ConfigDest:    DefaultRuntimeConfigPath,
 		TLSCertSource: DefaultTLSSourceCertPath,
@@ -103,11 +104,21 @@ func Run(opts Options) error {
 		}
 	}
 
-	if err := stageTLSArtifacts(opts, runUID, runGID); err != nil {
+	artifactsChanged, err := stageTLSArtifacts(opts, runUID, runGID)
+	if err != nil {
 		errLog.Printf("reload staging failed err=%v", err)
 		return err
 	}
 	opsLog.Printf("staged runtime artifacts config=%s cert=%s key=%s owner=%s", opts.ConfigDest, opts.TLSCertDest, opts.TLSKeyDest, opts.RunUser)
+
+	if !artifactsChanged {
+		if opts.Force {
+			opsLog.Printf("no runtime artifact changes detected; forcing reload due to --force")
+		} else {
+			opsLog.Printf("no runtime artifact changes detected; skipping reload")
+			return nil
+		}
+	}
 
 	if opts.PrepareOnly {
 		opsLog.Printf("prepare-only mode complete")
@@ -214,65 +225,87 @@ func runGetent(database, key string) (string, error) {
 	return strings.Split(line, "\n")[0], nil
 }
 
-func stageTLSArtifacts(opts Options, uid, gid int) error {
-	if err := stageConfigArtifact(opts, uid, gid); err != nil {
-		return err
+func stageTLSArtifacts(opts Options, uid, gid int) (bool, error) {
+	configChanged, err := stageConfigArtifact(opts, uid, gid)
+	if err != nil {
+		return false, err
 	}
 
 	if err := validateTLSBundleOrder(opts.TLSCertSource); err != nil {
-		return fmt.Errorf("validate tls cert bundle order: %w", err)
+		return false, fmt.Errorf("validate tls cert bundle order: %w", err)
 	}
 
-	if err := copyFileAtomic(opts.TLSCertSource, opts.TLSCertDest, 0o640); err != nil {
-		return fmt.Errorf("stage tls cert: %w", err)
+	certChanged, err := copyFileAtomic(opts.TLSCertSource, opts.TLSCertDest, 0o640)
+	if err != nil {
+		return false, fmt.Errorf("stage tls cert: %w", err)
 	}
-	if err := os.Chown(opts.TLSCertDest, uid, gid); err != nil {
-		return fmt.Errorf("chown staged cert %s: %w", opts.TLSCertDest, err)
-	}
-
-	if err := copyFileAtomic(opts.TLSKeySource, opts.TLSKeyDest, 0o600); err != nil {
-		return fmt.Errorf("stage tls key: %w", err)
-	}
-	if err := os.Chown(opts.TLSKeyDest, uid, gid); err != nil {
-		return fmt.Errorf("chown staged key %s: %w", opts.TLSKeyDest, err)
+	if certChanged {
+		if err := os.Chown(opts.TLSCertDest, uid, gid); err != nil {
+			return false, fmt.Errorf("chown staged cert %s: %w", opts.TLSCertDest, err)
+		}
 	}
 
-	return nil
+	keyChanged, err := copyFileAtomic(opts.TLSKeySource, opts.TLSKeyDest, 0o600)
+	if err != nil {
+		return false, fmt.Errorf("stage tls key: %w", err)
+	}
+	if keyChanged {
+		if err := os.Chown(opts.TLSKeyDest, uid, gid); err != nil {
+			return false, fmt.Errorf("chown staged key %s: %w", opts.TLSKeyDest, err)
+		}
+	}
+
+	return configChanged || certChanged || keyChanged, nil
 }
 
-func stageConfigArtifact(opts Options, uid, gid int) error {
+func stageConfigArtifact(opts Options, uid, gid int) (bool, error) {
 	cfg, err := Load(opts.ConfigSource)
 	if err != nil {
-		return fmt.Errorf("load config source %s: %w", opts.ConfigSource, err)
+		return false, fmt.Errorf("load config source %s: %w", opts.ConfigSource, err)
 	}
 
-	runtimeCfg, err := buildRuntimeConfig(cfg, uid, gid)
+	stagedCAs := make(map[string]*stagedTrustedCA)
+
+	runtimeCfg, err := buildRuntimeConfig(cfg, uid, gid, stagedCAs)
 	if err != nil {
-		return fmt.Errorf("build runtime config: %w", err)
+		return false, fmt.Errorf("build runtime config: %w", err)
 	}
 	if err := app.ValidateRuntimeConfig(runtimeCfg); err != nil {
-		return fmt.Errorf("validate generated runtime config against json schema: %w", err)
+		return false, fmt.Errorf("validate generated runtime config against json schema: %w", err)
 	}
 
 	jsonConfig, err := json.MarshalIndent(runtimeCfg, "", "  ")
 	if err != nil {
-		return fmt.Errorf("marshal config json for %s: %w", opts.ConfigDest, err)
+		return false, fmt.Errorf("marshal config json for %s: %w", opts.ConfigDest, err)
 	}
 	jsonConfig = append(jsonConfig, '\n')
 
-	if err := writeFileAtomic(opts.ConfigDest, jsonConfig, 0o640); err != nil {
-		return fmt.Errorf("stage runtime config %s: %w", opts.ConfigDest, err)
+	configChanged, err := writeFileAtomic(opts.ConfigDest, jsonConfig, 0o640)
+	if err != nil {
+		return false, fmt.Errorf("stage runtime config %s: %w", opts.ConfigDest, err)
 	}
-	if err := os.Chown(opts.ConfigDest, uid, gid); err != nil {
-		return fmt.Errorf("chown staged config %s: %w", opts.ConfigDest, err)
+	if configChanged {
+		if err := os.Chown(opts.ConfigDest, uid, gid); err != nil {
+			return false, fmt.Errorf("chown staged config %s: %w", opts.ConfigDest, err)
+		}
 	}
 
-	return nil
+	trustedCAChanged := false
+	for _, entry := range stagedCAs {
+		if entry.changed {
+			trustedCAChanged = true
+			break
+		}
+	}
+
+	return configChanged || trustedCAChanged, nil
 }
 
-func buildRuntimeConfig(cfg *Config, uid, gid int) (*server.Config, error) {
+func buildRuntimeConfig(cfg *Config, uid, gid int, stagedCAs map[string]*stagedTrustedCA) (*server.Config, error) {
 	resolved := &server.Config{Routes: make([]server.Route, 0, len(cfg.Routes))}
-	stagedCAs := make(map[string]*stagedTrustedCA)
+	if stagedCAs == nil {
+		stagedCAs = make(map[string]*stagedTrustedCA)
+	}
 	for _, route := range cfg.Routes {
 		allowedIPv4Ranges, err := translateAllowedIPv4(route.AllowedIPv4)
 		if err != nil {
@@ -308,6 +341,7 @@ type stagedTrustedCA struct {
 	destPath   string
 	indexBySum map[[32]byte]int
 	pemBlocks  [][]byte
+	changed    bool
 }
 
 func buildRuntimeHandler(route Route, uid, gid int, stagedCAs map[string]*stagedTrustedCA) (server.Handler, error) {
@@ -470,9 +504,11 @@ func stageTrustedCA(trustedCA *TrustedCA, handler server.Handler, uid, gid int, 
 		entry.pemBlocks = append(entry.pemBlocks, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw}))
 	}
 
-	if err := writeTrustedCAFile(entry.destPath, entry.pemBlocks, uid, gid); err != nil {
+	changed, err := writeTrustedCAFile(entry.destPath, entry.pemBlocks, uid, gid)
+	if err != nil {
 		return nil, fmt.Errorf("stage trusted_ca %q: %w", name, err)
 	}
+	entry.changed = entry.changed || changed
 
 	return &server.TrustedCA{Name: name, File: filepath.Base(entry.destPath)}, nil
 }
@@ -514,9 +550,11 @@ func stageAutoTrustedCA(handler server.Handler, uid, gid int, stagedCAs map[stri
 		entry.pemBlocks = append(entry.pemBlocks, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw}))
 	}
 
-	if err := writeTrustedCAFile(entry.destPath, entry.pemBlocks, uid, gid); err != nil {
+	changed, err := writeTrustedCAFile(entry.destPath, entry.pemBlocks, uid, gid)
+	if err != nil {
 		return nil, fmt.Errorf("stage auto trusted_ca %q: %w", name, err)
 	}
+	entry.changed = entry.changed || changed
 
 	return &server.TrustedCA{Name: name, File: filepath.Base(entry.destPath)}, nil
 }
@@ -561,9 +599,11 @@ func stageInsecureTrustedCert(handler server.Handler, uid, gid int, stagedCAs ma
 		entry.pemBlocks = append(entry.pemBlocks, pemBlock)
 	}
 
-	if err := writeTrustedCAFile(entry.destPath, entry.pemBlocks, uid, gid); err != nil {
+	changed, err := writeTrustedCAFile(entry.destPath, entry.pemBlocks, uid, gid)
+	if err != nil {
 		return nil, fmt.Errorf("stage insecure trusted_ca %q: %w", name, err)
 	}
+	entry.changed = entry.changed || changed
 
 	return &server.TrustedCA{Name: name, File: filepath.Base(entry.destPath), PinCert: true}, nil
 }
@@ -787,18 +827,21 @@ func isSelfSignedCertificate(cert *x509.Certificate) bool {
 	return cert.CheckSignatureFrom(cert) == nil
 }
 
-func writeTrustedCAFile(destPath string, pemBlocks [][]byte, uid, gid int) error {
+func writeTrustedCAFile(destPath string, pemBlocks [][]byte, uid, gid int) (bool, error) {
 	content := make([]byte, 0)
 	for _, block := range pemBlocks {
 		content = append(content, block...)
 	}
-	if err := writeFileAtomic(destPath, content, 0o640); err != nil {
-		return err
+	changed, err := writeFileAtomic(destPath, content, 0o640)
+	if err != nil {
+		return false, err
 	}
-	if err := os.Chown(destPath, uid, gid); err != nil {
-		return err
+	if changed {
+		if err := os.Chown(destPath, uid, gid); err != nil {
+			return false, err
+		}
 	}
-	return nil
+	return changed, nil
 }
 
 func validateTLSBundleOrder(certPath string) error {
@@ -827,47 +870,33 @@ func validateTLSBundleOrder(certPath string) error {
 	return nil
 }
 
-func copyFileAtomic(src, dst string, mode os.FileMode) error {
-	in, err := os.Open(src)
+func copyFileAtomic(src, dst string, mode os.FileMode) (bool, error) {
+	content, err := os.ReadFile(src)
 	if err != nil {
-		return err
+		return false, err
 	}
-	defer in.Close()
 
-	dir := filepath.Dir(dst)
-	base := filepath.Base(dst)
-	tmp, err := os.CreateTemp(dir, base+".tmp-")
+	changed, err := writeFileAtomic(dst, content, mode)
 	if err != nil {
-		return err
+		return false, err
 	}
-	tmpPath := tmp.Name()
-	defer func() {
-		_ = os.Remove(tmpPath)
-	}()
-
-	if err := tmp.Chmod(mode); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := io.Copy(tmp, in); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpPath, dst); err != nil {
-		return err
-	}
-	return nil
+	return changed, nil
 }
 
-func writeFileAtomic(dst string, content []byte, mode os.FileMode) error {
+func writeFileAtomic(dst string, content []byte, mode os.FileMode) (bool, error) {
+	existing, err := os.ReadFile(dst)
+	if err == nil && bytes.Equal(existing, content) {
+		return false, nil
+	}
+	if err != nil && !os.IsNotExist(err) {
+		return false, err
+	}
+
 	dir := filepath.Dir(dst)
 	base := filepath.Base(dst)
 	tmp, err := os.CreateTemp(dir, base+".tmp-")
 	if err != nil {
-		return err
+		return false, err
 	}
 	tmpPath := tmp.Name()
 	defer func() {
@@ -876,19 +905,19 @@ func writeFileAtomic(dst string, content []byte, mode os.FileMode) error {
 
 	if err := tmp.Chmod(mode); err != nil {
 		_ = tmp.Close()
-		return err
+		return false, err
 	}
 	if _, err := tmp.Write(content); err != nil {
 		_ = tmp.Close()
-		return err
+		return false, err
 	}
 	if err := tmp.Close(); err != nil {
-		return err
+		return false, err
 	}
 	if err := os.Rename(tmpPath, dst); err != nil {
-		return err
+		return false, err
 	}
-	return nil
+	return true, nil
 }
 
 func ensurePortsBoundByHTTPSD(httpAddr, httpsAddr string, pids []int) error {
