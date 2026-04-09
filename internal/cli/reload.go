@@ -687,12 +687,16 @@ func fetchVerifiedHandlerCACerts(handler server.Handler, sourcePath string) ([]*
 	}
 
 	verifiedChains, err := peerCerts[0].Verify(x509.VerifyOptions{
-		DNSName:       handler.Hostname,
 		Roots:         roots,
 		Intermediates: intermediates,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("verify handler %s against trusted_ca %s: %w", formatRuntimeHandler(handler), sourcePath, err)
+	}
+	if handler.Hostname != "" {
+		if err := app.VerifyCertificateHostname(peerCerts[0], handler.Hostname); err != nil {
+			return nil, fmt.Errorf("verify handler %s hostname against trusted_ca %s: %w", formatRuntimeHandler(handler), sourcePath, err)
+		}
 	}
 
 	chain := longestVerifiedChain(verifiedChains)
@@ -736,12 +740,16 @@ func fetchVerifiedHandlerOSCACerts(handler server.Handler) ([]*x509.Certificate,
 	}
 
 	verifiedChains, err := peerCerts[0].Verify(x509.VerifyOptions{
-		DNSName:       handler.Hostname,
 		Roots:         roots,
 		Intermediates: intermediates,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("verify handler %s against system trust store: %w", formatRuntimeHandler(handler), err)
+	}
+	if handler.Hostname != "" {
+		if err := app.VerifyCertificateHostname(peerCerts[0], handler.Hostname); err != nil {
+			return nil, fmt.Errorf("verify handler %s hostname against system trust store: %w", formatRuntimeHandler(handler), err)
+		}
 	}
 
 	chain := longestVerifiedChain(verifiedChains)

@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"webd/internal/app"
 	"webd/internal/server"
 )
 
@@ -243,15 +244,15 @@ func checkTLSMaterials(certPath, keyPath string) checkResult {
 		candidates := hostCandidates(hostname)
 		matched := ""
 		for _, candidate := range candidates {
-			if verifyErr := leaf.VerifyHostname(candidate); verifyErr == nil {
+			if verifyErr := app.VerifyCertificateHostname(leaf, candidate); verifyErr == nil {
 				matched = candidate
 				break
 			}
 		}
 		if matched == "" {
-			result.failLines = append(result.failLines, fmt.Sprintf("tls SAN mismatch: cert does not match this host (checked: %s)", strings.Join(candidates, ",")))
+			result.failLines = append(result.failLines, fmt.Sprintf("tls hostname mismatch: cert does not match this host (checked: %s)", strings.Join(candidates, ",")))
 		} else {
-			result.okLines = append(result.okLines, fmt.Sprintf("tls SAN check OK (matched host %q)", matched))
+			result.okLines = append(result.okLines, fmt.Sprintf("tls hostname check OK (matched host %q)", matched))
 		}
 	}
 

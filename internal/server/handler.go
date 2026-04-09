@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"webd/internal/app"
 )
 
 func newRequestRouter(activeRoutes *atomic.Value, errLog *log.Logger, httpsAddr string) http.Handler {
@@ -264,7 +266,7 @@ func handleProxyTransport(handler Handler) (http.RoundTripper, error) {
 					}
 
 					if handler.Hostname != "" {
-						if err := leafCert.VerifyHostname(handler.Hostname); err != nil {
+						if err := app.VerifyCertificateHostname(leafCert, handler.Hostname); err != nil {
 							return fmt.Errorf("peer certificate hostname mismatch: %w", err)
 						}
 					}
