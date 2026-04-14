@@ -191,47 +191,56 @@ func expandPathGlobVariants(path string) ([]string, error) {
 }
 
 func expandPathToken(input string) ([]string, error) {
-	if idx := strings.IndexByte(input, '{'); idx >= 0 {
-		closeIdx, err := findMatchingDelimiter(input, idx, '{', '}')
-		if err != nil {
-			return nil, err
-		}
-		inside := input[idx+1 : closeIdx]
-		options, err := splitBraceOptions(inside)
-		if err != nil {
-			return nil, err
-		}
-		out := make([]string, 0)
-		prefix := input[:idx]
-		suffix := input[closeIdx+1:]
-		for _, opt := range options {
-			expandedSuffix, err := expandPathToken(suffix)
-			if err != nil {
-				return nil, err
-			}
-			for _, s := range expandedSuffix {
-				out = append(out, prefix+opt+s)
-				if len(out) > maxExpandedPathVariants {
-					return nil, fmt.Errorf("too many expanded paths (>%d)", maxExpandedPathVariants)
-				}
-			}
-		}
-		return out, nil
+	idxCurly := strings.IndexByte(input, '{')
+	idxSquare := strings.IndexByte(input, '[')
+
+	idx := -1
+	open := byte(0)
+	close := byte(0)
+	kind := ""
+	if idxCurly >= 0 && (idxSquare < 0 || idxCurly < idxSquare) {
+		idx = idxCurly
+		open = '{'
+		close = '}'
+		kind = "curly"
+	} else if idxSquare >= 0 {
+		idx = idxSquare
+		open = '['
+		close = ']'
+		kind = "square"
 	}
 
-	if idx := strings.IndexByte(input, '['); idx >= 0 {
-		closeIdx, err := findMatchingDelimiter(input, idx, '[', ']')
+	if idx >= 0 {
+		closeIdx, err := findMatchingDelimiter(input, idx, open, close)
 		if err != nil {
 			return nil, err
 		}
-		items, err := expandBracketClass(input[idx+1 : closeIdx])
-		if err != nil {
-			return nil, err
-		}
-		out := make([]string, 0)
+
 		prefix := input[:idx]
 		suffix := input[closeIdx+1:]
 		expandedSuffix, err := expandPathToken(suffix)
+		if err != nil {
+			return nil, err
+		}
+
+		out := make([]string, 0)
+		if kind == "curly" {
+			options, err := splitBraceOptions(input[idx+1 : closeIdx])
+			if err != nil {
+				return nil, err
+			}
+			for _, opt := range options {
+				for _, s := range expandedSuffix {
+					out = append(out, prefix+opt+s)
+					if len(out) > maxExpandedPathVariants {
+						return nil, fmt.Errorf("too many expanded paths (>%d)", maxExpandedPathVariants)
+					}
+				}
+			}
+			return out, nil
+		}
+
+		items, err := expandBracketClass(input[idx+1 : closeIdx])
 		if err != nil {
 			return nil, err
 		}
