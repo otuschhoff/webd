@@ -115,7 +115,7 @@ Rules:
 - `routes` must contain at least one entry.
 - `path` must begin with `/` (empty is treated as `/`).
 - Each route must set exactly one of `handler` or `redirect`.
-- `handler` must be a valid absolute URL.
+- `handler` must resolve to a valid absolute URL (template placeholders are expanded first).
 - `redirect` must be a valid absolute URL and returns `301 Moved Permanently`.
 - Non-ACME HTTP requests are permanently redirected (`301`) to the equivalent `https://` URL.
 - ACME challenge requests under `/.well-known/acme-challenge/` are served over HTTP without redirect.
@@ -137,7 +137,56 @@ Rules:
 - `trusted_ca.cert_path` must point to a PEM CA bundle that `webctl reload` can read.
 - Most specific `path` wins (longest prefix match).
 
+YAML templates (resolved by `webctl reload` before writing runtime JSON):
+
+- Optional top-level `templates` supports `ipv4` and `handler` subsections.
+- `templates.ipv4.<name>` is a list of allowed IPv4 entries (IPv4, CIDR, or range).
+- `templates.handler.<name>` is a single string value (typically a handler URL prefix).
+- Handler references can appear inline, for example `handler: "{{svn}}/design"`.
+- IPv4 template references under `allowed_ipv4` can use either a bare template name (recommended) or `{{name}}`, for example `- global` or `- "{{global}}"`.
+- Runtime `/run/webd/config.json` is always fully resolved and contains no template placeholders.
+
 Config examples:
+
+Handler template with inline path suffix:
+
+```yaml
+templates:
+  handler:
+    svn: http://svn-srv.example.com/proj1
+
+routes:
+  - path: /design/
+    handler: "{{svn}}/design"
+
+  - path: /
+    handler: http://127.0.0.1:3000
+```
+
+IPv4 template reused across multiple routes:
+
+```yaml
+templates:
+  ipv4:
+    global:
+      - 127.0.0.1
+      - 10.0.0.0/8
+      - 192.0.2.10-192.0.2.50
+
+routes:
+  - path: /admin/
+    handler: http://127.0.0.1:9000/
+    allowed_ipv4:
+      - global
+
+  - path: /metrics/
+    handler: http://127.0.0.1:9100/
+    allowed_ipv4:
+      - global
+
+  - path: /
+    handler: http://127.0.0.1:3000
+```
 
 Simple catch-all route:
 

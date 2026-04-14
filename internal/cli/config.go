@@ -177,6 +177,13 @@ func resolveIPv4TemplateRefs(entries []string, templates map[string][]string) ([
 	for _, entry := range entries {
 		name, ok := parseTemplateRef(entry)
 		if !ok {
+			bare := strings.TrimSpace(entry)
+			if _, exists := templates[bare]; exists {
+				name = bare
+				ok = true
+			}
+		}
+		if !ok {
 			out = append(out, entry)
 			continue
 		}
