@@ -81,7 +81,8 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-var templateRefRe = regexp.MustCompile(`\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}`)
+var handlerTemplateRefRe = regexp.MustCompile(`\$\{\s*([A-Za-z0-9_.-]+)\s*\}`)
+var ipv4TemplateRefRe = regexp.MustCompile(`\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}`)
 
 func resolveTemplates(cfg *Config) error {
 	if cfg == nil {
@@ -162,8 +163,8 @@ func resolveHandlerTemplateRefs(handler string, templates map[string]string, rou
 	}
 
 	missing := make([]string, 0)
-	resolved := templateRefRe.ReplaceAllStringFunc(raw, func(match string) string {
-		parts := templateRefRe.FindStringSubmatch(match)
+	resolved := handlerTemplateRefRe.ReplaceAllStringFunc(raw, func(match string) string {
+		parts := handlerTemplateRefRe.FindStringSubmatch(match)
 		if len(parts) != 2 {
 			return match
 		}
@@ -220,7 +221,7 @@ func resolveIPv4TemplateRefs(entries []string, templates map[string][]string) ([
 
 func parseTemplateRef(value string) (string, bool) {
 	trimmed := strings.TrimSpace(value)
-	m := templateRefRe.FindStringSubmatch(trimmed)
+	m := ipv4TemplateRefRe.FindStringSubmatch(trimmed)
 	if len(m) != 2 {
 		return "", false
 	}
