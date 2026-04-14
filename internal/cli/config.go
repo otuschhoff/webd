@@ -76,6 +76,17 @@ func (w *WebsocketValue) UnmarshalYAML(value *yaml.Node) error {
 	}
 }
 
+// MarshalYAML implements yaml.Marshaler.
+func (w *WebsocketValue) MarshalYAML() (any, error) {
+	if w == nil {
+		return nil, nil
+	}
+	if w.disabled {
+		return false, nil
+	}
+	return w.url, nil
+}
+
 // Route maps a URL path prefix to a handler base URL.
 type Route struct {
 	// Path is matched against the incoming request path.
