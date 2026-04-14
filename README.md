@@ -142,7 +142,10 @@ YAML templates (resolved by `webctl reload` before writing runtime JSON):
 - Optional top-level `templates` supports `ipv4` and `handler` subsections.
 - `templates.ipv4.<name>` is a list of allowed IPv4 entries (IPv4, CIDR, or range).
 - `templates.handler.<name>` is a single string value (typically a handler URL prefix).
+- `templates.handler.path` is reserved and not allowed.
 - Handler references can appear inline, for example `handler: "{{svn}}/design"`.
+- `{{path}}` is a built-in handler placeholder that expands to the current route path without the leading slash.
+- Example: route `path: /api` with `handler: "http://backend.local/{{path}}"` expands to `http://backend.local/api`.
 - IPv4 template references under `allowed_ipv4` can use either a bare template name (recommended) or `{{name}}`, for example `- global` or `- "{{global}}"`.
 - Runtime `/run/webd/config.json` is always fully resolved and contains no template placeholders.
 
@@ -161,6 +164,17 @@ routes:
 
   - path: /
     handler: http://127.0.0.1:3000
+```
+
+Built-in `{{path}}` placeholder in handler:
+
+```yaml
+routes:
+  - path: /api
+    handler: http://backend.local/{{path}}
+
+  - path: /v2/resources/
+    handler: http://backend.local/{{path}}
 ```
 
 IPv4 template reused across multiple routes:

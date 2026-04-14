@@ -84,12 +84,16 @@ func Load(path string) (*Config, error) {
 var templateRefRe = regexp.MustCompile(`\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}`)
 
 func resolveTemplates(cfg *Config) error {
-	if cfg == nil || cfg.Templates == nil {
+	if cfg == nil {
 		return nil
 	}
 
-	ipv4Templates := cfg.Templates.IPv4
-	handlerTemplates := cfg.Templates.Handler
+	ipv4Templates := map[string][]string{}
+	handlerTemplates := map[string]string{}
+	if cfg.Templates != nil {
+		ipv4Templates = cfg.Templates.IPv4
+		handlerTemplates = cfg.Templates.Handler
+	}
 
 	if err := validateTemplateNames(ipv4Templates, "templates.ipv4"); err != nil {
 		return err
@@ -97,11 +101,15 @@ func resolveTemplates(cfg *Config) error {
 	if err := validateTemplateNames(handlerTemplates, "templates.handler"); err != nil {
 		return err
 	}
+	if _, reserved := handlerTemplates["path"]; reserved {
+		return fmt.Errorf("templates.handler template name %q is reserved", "path")
+	}
 
 	for i := range cfg.Routes {
 		r := &cfg.Routes[i]
+		routePathTemplate := routePathTemplateValue(r.Path)
 
-		resolvedHandler, err := resolveHandlerTemplateRefs(r.Handler, handlerTemplates)
+		resolvedHandler, err := resolveHandlerTemplateRefs(r.Handler, handlerTemplates, routePathTemplate)
 		if err != nil {
 			return fmt.Errorf("route path=%q handler template expansion failed: %w", strings.TrimSpace(r.Path), err)
 		}
@@ -115,6 +123,14 @@ func resolveTemplates(cfg *Config) error {
 	}
 
 	return nil
+}
+
+func routePathTemplateValue(routePath string) string {
+	trimmed := strings.TrimSpace(routePath)
+	if trimmed == "" || trimmed == "/" {
+		return ""
+	}
+	return strings.TrimPrefix(trimmed, "/")
 }
 
 func validateTemplateNames[T any](m map[string]T, section string) error {
@@ -139,7 +155,7 @@ func templateRefNameOK(name string) bool {
 	return true
 }
 
-func resolveHandlerTemplateRefs(handler string, templates map[string]string) (string, error) {
+func resolveHandlerTemplateRefs(handler string, templates map[string]string, routePathValue string) (string, error) {
 	raw := strings.TrimSpace(handler)
 	if raw == "" {
 		return handler, nil
@@ -152,6 +168,9 @@ func resolveHandlerTemplateRefs(handler string, templates map[string]string) (st
 			return match
 		}
 		name := parts[1]
+		if name == "path" {
+			return routePathValue
+		}
 		value, ok := templates[name]
 		if !ok {
 			missing = append(missing, name)
