@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"runtime/debug"
@@ -13,31 +12,23 @@ import (
 	"webd/internal/app"
 )
 
-var errVersionShown = errors.New("version shown")
-
 // ExecuteControl runs the control-plane CLI (check, reload, setup, letsencrypt).
 func ExecuteControl() error {
 	runOpts := DefaultRunOptions()
 	setupOpts := DefaultSetupOptions()
 	reloadOpts := DefaultOptions()
 	letsEncryptOpts := defaultLetsEncryptOptions()
-	versionFlagCount := 0
 
 	rootCmd := &cobra.Command{
 		Use:   "webctl",
 		Short: "HTTPS proxy control-plane commands",
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if versionFlagCount == 0 {
-				return nil
-			}
-			printVersionInfo(cmd.OutOrStdout(), versionFlagCount)
-			cmd.Root().SilenceErrors = true
-			cmd.Root().SilenceUsage = true
-			return errVersionShown
-		},
 	}
+	rootCmd.AddGroup(
+		&cobra.Group{ID: "info", Title: "Info Commands"},
+		&cobra.Group{ID: "ops", Title: "Control Commands"},
+	)
 	addCompletionCommand(rootCmd)
-	rootCmd.PersistentFlags().CountVarP(&versionFlagCount, "version", "V", "Show version; use -VV for Go and dependency versions")
+	rootCmd.SetHelpCommand(newHelpCommand(rootCmd))
 
 	rootCmd.PersistentFlags().StringVar(&runOpts.ConfigPath, "config", runOpts.ConfigPath, "Path to YAML reverse-proxy config")
 	rootCmd.PersistentFlags().StringVar(&runOpts.HTTPAddr, "http-addr", runOpts.HTTPAddr, "HTTP listen address")
@@ -45,9 +36,22 @@ func ExecuteControl() error {
 	rootCmd.PersistentFlags().StringVar(&runOpts.TLSCertPath, "tls-cert", runOpts.TLSCertPath, "TLS certificate file")
 	rootCmd.PersistentFlags().StringVar(&runOpts.TLSKeyPath, "tls-key", runOpts.TLSKeyPath, "TLS private key file")
 	rootCmd.PersistentFlags().StringVar(&reloadOpts.RunUser, "run-user", reloadOpts.RunUser, "Expected runtime user for the server process")
+	versionCmd := &cobra.Command{
+		Use:           "version",
+		Aliases:       []string{"v", "V"},
+		Short:         "Show build, Go, and dependency versions",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		GroupID:       "info",
+		Args:          cobra.NoArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			printVersionInfo(cmd.OutOrStdout())
+		},
+	}
 	reloadCmd := &cobra.Command{
 		Use:   "reload",
 		Short: "Stage TLS artifacts under /run and reload running webd",
+		GroupID: "ops",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			reloadOpts.HTTPAddr = runOpts.HTTPAddr
 			reloadOpts.HTTPSAddr = runOpts.HTTPSAddr
@@ -67,6 +71,7 @@ func ExecuteControl() error {
 	reloadTimerCmd := &cobra.Command{
 		Use:   "reload-timer",
 		Short: "Manage periodic local TLS refresh timer for webd",
+		GroupID: "ops",
 	}
 	reloadTimerAddCmd := &cobra.Command{
 		Use:           "add",
@@ -116,6 +121,7 @@ func ExecuteControl() error {
 		Short:         "Validate config and print it in pretty colored YAML",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		GroupID:       "ops",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runCheck(runOpts)
 		},
@@ -126,6 +132,7 @@ func ExecuteControl() error {
 		Short:         "Prepare system user/group, permissions, and service unit",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		GroupID:       "ops",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSetup(setupOpts)
 		},
@@ -140,6 +147,7 @@ func ExecuteControl() error {
 		Short:         "Request a Let's Encrypt certificate and deploy it",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		GroupID:       "ops",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			letsEncryptOpts.Reload.HTTPAddr = runOpts.HTTPAddr
 			letsEncryptOpts.Reload.HTTPSAddr = runOpts.HTTPSAddr
@@ -158,19 +166,12 @@ func ExecuteControl() error {
 	letsEncryptCmd.Flags().StringVar(&letsEncryptOpts.KeyPath, "key-path", letsEncryptOpts.KeyPath, "Path to save private key PEM")
 	letsEncryptCmd.Flags().BoolVar(&letsEncryptOpts.Deploy, "deploy", letsEncryptOpts.Deploy, "Deploy to running webd after issuance")
 
-	rootCmd.AddCommand(reloadCmd, reloadTimerCmd, checkCmd, setupCmd, letsEncryptCmd)
-	err := rootCmd.Execute()
-	if errors.Is(err, errVersionShown) {
-		return nil
-	}
-	return err
+	rootCmd.AddCommand(versionCmd, reloadCmd, reloadTimerCmd, checkCmd, setupCmd, letsEncryptCmd)
+	return rootCmd.Execute()
 }
 
-func printVersionInfo(w io.Writer, detailLevel int) {
+func printVersionInfo(w io.Writer) {
 	fmt.Fprintf(w, "webctl %s\n", app.VersionString())
-	if detailLevel < 2 {
-		return
-	}
 
 	bi, ok := debug.ReadBuildInfo()
 	if !ok || bi == nil {
@@ -206,5 +207,27 @@ func printVersionInfo(w io.Writer, detailLevel int) {
 			continue
 		}
 		fmt.Fprintf(w, "  %s %s\n", dep.Path, version)
+	}
+}
+
+func newHelpCommand(rootCmd *cobra.Command) *cobra.Command {
+	return &cobra.Command{
+		Use:           "help [command]",
+		Short:         "Help about any command",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		GroupID:       "info",
+		Args:          cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			helpTarget := rootCmd
+			if len(args) > 0 {
+				found, _, err := rootCmd.Find(args)
+				if err != nil {
+					return err
+				}
+				helpTarget = found
+			}
+			return helpTarget.Help()
+		},
 	}
 }

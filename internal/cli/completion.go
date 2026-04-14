@@ -84,9 +84,6 @@ func visibleCommandNames(commands []*cobra.Command) []string {
 		if cmd.Hidden {
 			continue
 		}
-		if cmd.Name() == "help" {
-			continue
-		}
 		names = append(names, cmd.Name())
 	}
 	sort.Strings(names)
