@@ -129,11 +129,9 @@ func checkHandlers(cfg *Config) checkResult {
 		hostPort := u.Host
 		if u.Port() == "" {
 			switch strings.ToLower(u.Scheme) {
-			case "http":
-			case "ws":
+			case "http", "ws":
 				hostPort = net.JoinHostPort(u.Hostname(), "80")
-			case "https":
-			case "wss":
+			case "https", "wss":
 				hostPort = net.JoinHostPort(u.Hostname(), "443")
 			default:
 				result.failLines = append(result.failLines, fmt.Sprintf("%s unsupported scheme %q", raw, u.Scheme))
