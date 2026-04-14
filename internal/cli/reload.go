@@ -942,7 +942,10 @@ func validateTLSBundleOrder(certPath string) error {
 		return err
 	}
 	if len(certs) < 2 {
-		return fmt.Errorf("bundle must contain leaf certificate first, followed by issuing intermediate/sub-CA certificate")
+		if len(certs) == 1 && isSelfSignedCertificate(certs[0]) {
+			return nil
+		}
+		return fmt.Errorf("bundle must contain leaf certificate first, followed by issuing intermediate/sub-CA certificate (or a single self-signed certificate)")
 	}
 
 	leaf := certs[0]
