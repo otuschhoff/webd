@@ -83,28 +83,28 @@ const sourceConfigSchemaJSON = `{
             }
           }
         ]
-      },
-      "templates": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "ipv4": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "array",
-              "minItems": 1,
-              "items": {
-                "type": "string",
-                "minLength": 1
-              }
-            }
-          },
-          "handler": {
-            "type": "object",
-            "additionalProperties": {
+      }
+    },
+    "templates": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ipv4": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
               "type": "string",
               "minLength": 1
             }
+          }
+        },
+        "handler": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
           }
         }
       }
