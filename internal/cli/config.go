@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"webd/internal/app"
@@ -18,6 +19,11 @@ import (
 type TrustedCA struct {
 	Name     string `yaml:"name" json:"name"`
 	CertPath string `yaml:"cert_path" json:"cert_path"`
+}
+
+type Templates struct {
+	IPv4    map[string][]string `yaml:"ipv4,omitempty" json:"ipv4,omitempty"`
+	Handler map[string]string   `yaml:"handler,omitempty" json:"handler,omitempty"`
 }
 
 // Route maps a URL path prefix to a handler base URL.
@@ -41,7 +47,8 @@ type Route struct {
 
 // Config is the root YAML configuration for reverse-proxy routes.
 type Config struct {
-	Routes []Route `yaml:"routes" json:"routes"`
+	Templates *Templates `yaml:"templates,omitempty" json:"templates,omitempty"`
+	Routes    []Route    `yaml:"routes" json:"routes"`
 }
 
 // Load reads, parses, and validates a YAML configuration file.
@@ -64,10 +71,152 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config %s as yaml: %w", path, err)
 	}
 
+	if err := resolveTemplates(&cfg); err != nil {
+		return nil, err
+	}
+
 	if err := Validate(&cfg); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+var templateRefRe = regexp.MustCompile(`\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}`)
+
+func resolveTemplates(cfg *Config) error {
+	if cfg == nil || cfg.Templates == nil {
+		return nil
+	}
+
+	ipv4Templates := cfg.Templates.IPv4
+	handlerTemplates := cfg.Templates.Handler
+
+	if err := validateTemplateNames(ipv4Templates, "templates.ipv4"); err != nil {
+		return err
+	}
+	if err := validateTemplateNames(handlerTemplates, "templates.handler"); err != nil {
+		return err
+	}
+
+	for i := range cfg.Routes {
+		r := &cfg.Routes[i]
+
+		resolvedHandler, err := resolveHandlerTemplateRefs(r.Handler, handlerTemplates)
+		if err != nil {
+			return fmt.Errorf("route path=%q handler template expansion failed: %w", strings.TrimSpace(r.Path), err)
+		}
+		r.Handler = resolvedHandler
+
+		resolvedIPv4, err := resolveIPv4TemplateRefs(r.AllowedIPv4, ipv4Templates)
+		if err != nil {
+			return fmt.Errorf("route path=%q allowed_ipv4 template expansion failed: %w", strings.TrimSpace(r.Path), err)
+		}
+		r.AllowedIPv4 = resolvedIPv4
+	}
+
+	return nil
+}
+
+func validateTemplateNames[T any](m map[string]T, section string) error {
+	for name := range m {
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("%s template name must not be empty", section)
+		}
+		if !templateRefNameOK(name) {
+			return fmt.Errorf("%s template name %q contains unsupported characters", section, name)
+		}
+	}
+	return nil
+}
+
+func templateRefNameOK(name string) bool {
+	for _, ch := range name {
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '.' || ch == '_' || ch == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func resolveHandlerTemplateRefs(handler string, templates map[string]string) (string, error) {
+	raw := strings.TrimSpace(handler)
+	if raw == "" {
+		return handler, nil
+	}
+
+	missing := make([]string, 0)
+	resolved := templateRefRe.ReplaceAllStringFunc(raw, func(match string) string {
+		parts := templateRefRe.FindStringSubmatch(match)
+		if len(parts) != 2 {
+			return match
+		}
+		name := parts[1]
+		value, ok := templates[name]
+		if !ok {
+			missing = append(missing, name)
+			return match
+		}
+		return value
+	})
+
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		return "", fmt.Errorf("unknown handler template(s): %s", strings.Join(uniqueStrings(missing), ", "))
+	}
+
+	return resolved, nil
+}
+
+func resolveIPv4TemplateRefs(entries []string, templates map[string][]string) ([]string, error) {
+	if len(entries) == 0 {
+		return entries, nil
+	}
+
+	out := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		name, ok := parseTemplateRef(entry)
+		if !ok {
+			out = append(out, entry)
+			continue
+		}
+		values, exists := templates[name]
+		if !exists {
+			return nil, fmt.Errorf("unknown ipv4 template %q", name)
+		}
+		if len(values) == 0 {
+			return nil, fmt.Errorf("ipv4 template %q is empty", name)
+		}
+		out = append(out, values...)
+	}
+	return out, nil
+}
+
+func parseTemplateRef(value string) (string, bool) {
+	trimmed := strings.TrimSpace(value)
+	m := templateRefRe.FindStringSubmatch(trimmed)
+	if len(m) != 2 {
+		return "", false
+	}
+	if m[0] != trimmed {
+		return "", false
+	}
+	return m[1], true
+}
+
+func uniqueStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	last := ""
+	for i, s := range in {
+		if i == 0 || s != last {
+			out = append(out, s)
+		}
+		last = s
+	}
+	return out
 }
 
 // normalizeYAMLValue converts YAML-decoded maps into JSON-compatible map[string]any values.

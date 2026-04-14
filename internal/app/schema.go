@@ -28,7 +28,7 @@ const sourceConfigSchemaJSON = `{
           },
           "handler": {
             "type": "string",
-            "pattern": "^[A-Za-z][A-Za-z0-9+.-]*://.+"
+            "minLength": 1
           },
           "redirect": {
             "type": "string",
@@ -77,6 +77,30 @@ const sourceConfigSchemaJSON = `{
             }
           }
         ]
+      },
+      "templates": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ipv4": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "handler": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
       }
     }
   }
