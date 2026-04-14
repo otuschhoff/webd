@@ -1,10 +1,19 @@
 package cli
 
 import (
+	"errors"
+	"fmt"
+	"io"
+	"runtime/debug"
+	"sort"
+	"strings"
+
 	"github.com/spf13/cobra"
 
 	"webd/internal/app"
 )
+
+var errVersionShown = errors.New("version shown")
 
 // ExecuteControl runs the control-plane CLI (check, reload, setup, letsencrypt).
 func ExecuteControl() error {
@@ -12,13 +21,23 @@ func ExecuteControl() error {
 	setupOpts := DefaultSetupOptions()
 	reloadOpts := DefaultOptions()
 	letsEncryptOpts := defaultLetsEncryptOptions()
+	versionFlagCount := 0
 
 	rootCmd := &cobra.Command{
-		Use:     "webctl",
-		Short:   "HTTPS proxy control-plane commands",
-		Version: app.VersionString(),
+		Use:   "webctl",
+		Short: "HTTPS proxy control-plane commands",
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if versionFlagCount == 0 {
+				return nil
+			}
+			printVersionInfo(cmd.OutOrStdout(), versionFlagCount)
+			cmd.Root().SilenceErrors = true
+			cmd.Root().SilenceUsage = true
+			return errVersionShown
+		},
 	}
 	addCompletionCommand(rootCmd)
+	rootCmd.PersistentFlags().CountVarP(&versionFlagCount, "version", "V", "Show version; use -VV for Go and dependency versions")
 
 	rootCmd.PersistentFlags().StringVar(&runOpts.ConfigPath, "config", runOpts.ConfigPath, "Path to YAML reverse-proxy config")
 	rootCmd.PersistentFlags().StringVar(&runOpts.HTTPAddr, "http-addr", runOpts.HTTPAddr, "HTTP listen address")
@@ -140,5 +159,52 @@ func ExecuteControl() error {
 	letsEncryptCmd.Flags().BoolVar(&letsEncryptOpts.Deploy, "deploy", letsEncryptOpts.Deploy, "Deploy to running webd after issuance")
 
 	rootCmd.AddCommand(reloadCmd, reloadTimerCmd, checkCmd, setupCmd, letsEncryptCmd)
-	return rootCmd.Execute()
+	err := rootCmd.Execute()
+	if errors.Is(err, errVersionShown) {
+		return nil
+	}
+	return err
+}
+
+func printVersionInfo(w io.Writer, detailLevel int) {
+	fmt.Fprintf(w, "webctl %s\n", app.VersionString())
+	if detailLevel < 2 {
+		return
+	}
+
+	bi, ok := debug.ReadBuildInfo()
+	if !ok || bi == nil {
+		fmt.Fprintln(w, "go unknown")
+		fmt.Fprintln(w, "dependencies unknown")
+		return
+	}
+
+	fmt.Fprintf(w, "go %s\n", strings.TrimSpace(bi.GoVersion))
+
+	deps := make([]*debug.Module, 0, len(bi.Deps))
+	for _, dep := range bi.Deps {
+		if dep != nil {
+			deps = append(deps, dep)
+		}
+	}
+	sort.Slice(deps, func(i, j int) bool {
+		return deps[i].Path < deps[j].Path
+	})
+
+	fmt.Fprintln(w, "dependencies:")
+	for _, dep := range deps {
+		version := dep.Version
+		if version == "" {
+			version = "unknown"
+		}
+		if dep.Replace != nil {
+			replVersion := dep.Replace.Version
+			if replVersion == "" {
+				replVersion = "(local)"
+			}
+			fmt.Fprintf(w, "  %s %s => %s %s\n", dep.Path, version, dep.Replace.Path, replVersion)
+			continue
+		}
+		fmt.Fprintf(w, "  %s %s\n", dep.Path, version)
+	}
 }
