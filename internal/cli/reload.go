@@ -455,22 +455,38 @@ func buildRuntimeHandlerForURL(handlerURL string, insecure bool, trustedCA *Trus
 	if trustedCA != nil {
 		resolvedTrustedCA, err = stageTrustedCA(trustedCA, handlerCfg, uid, gid, stagedCAs)
 		if err != nil {
-			return server.Handler{}, err
+			if !isTLSBackendCertFetchError(err) {
+				return server.Handler{}, err
+			}
+			resolvedTrustedCA = nil
 		}
 	} else if insecure {
 		resolvedTrustedCA, err = stageInsecureTrustedCert(handlerCfg, uid, gid, stagedCAs)
 		if err != nil {
-			return server.Handler{}, err
+			if !isTLSBackendCertFetchError(err) {
+				return server.Handler{}, err
+			}
+			resolvedTrustedCA = nil
 		}
 	} else if protocol == "https" || protocol == "wss" {
 		resolvedTrustedCA, err = stageAutoTrustedCA(handlerCfg, uid, gid, stagedCAs)
 		if err != nil {
-			return server.Handler{}, err
+			if !isTLSBackendCertFetchError(err) {
+				return server.Handler{}, err
+			}
+			resolvedTrustedCA = nil
 		}
 	}
 
 	handlerCfg.TrustedCA = resolvedTrustedCA
 	return handlerCfg, nil
+}
+
+func isTLSBackendCertFetchError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "fetch handler TLS certificates for")
 }
 
 func autoWebsocketURL(handlerRawURL string) (string, bool) {
