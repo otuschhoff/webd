@@ -2,9 +2,17 @@ package cli
 
 import (
 	"cmp"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
+	"net"
 	"os"
 	"os/exec"
 	"os/user"
@@ -94,13 +102,9 @@ func runSetup(opts SetupOptions) error {
 		return err
 	}
 
-	if _, err := os.Stat(opts.TLSKeyPath); err != nil {
-		return fmt.Errorf("verify TLS key %s: %w", opts.TLSKeyPath, err)
+	if err := ensureTLSCertAndKey(opts.TLSCertPath, opts.TLSKeyPath); err != nil {
+		return err
 	}
-	if _, err := os.Stat(opts.TLSCertPath); err != nil {
-		return fmt.Errorf("verify TLS cert %s: %w", opts.TLSCertPath, err)
-	}
-	fmt.Printf("verified TLS cert/key paths exist without changing ownership/perms cert=%s key=%s\n", opts.TLSCertPath, opts.TLSKeyPath)
 
 	if err := ensureEtcConfig(webdGroup); err != nil {
 		return err
@@ -221,6 +225,110 @@ fi
 		} else {
 			fmt.Printf("root PATH profile script already up-to-date: %s\n", target.path)
 		}
+	}
+
+	return nil
+}
+
+func ensureTLSCertAndKey(certPath, keyPath string) error {
+	_, certErr := os.Stat(certPath)
+	_, keyErr := os.Stat(keyPath)
+
+	if certErr == nil && keyErr == nil {
+		fmt.Printf("verified TLS cert/key exist cert=%s key=%s\n", certPath, keyPath)
+		return nil
+	}
+
+	if certErr == nil && !errors.Is(keyErr, os.ErrNotExist) {
+		return fmt.Errorf("stat TLS key %s: %w", keyPath, keyErr)
+	}
+	if keyErr == nil && !errors.Is(certErr, os.ErrNotExist) {
+		return fmt.Errorf("stat TLS cert %s: %w", certPath, certErr)
+	}
+
+	hostname, err := os.Hostname()
+	if err != nil || strings.TrimSpace(hostname) == "" {
+		hostname = "localhost"
+	}
+
+	fmt.Printf("TLS cert/key not found; generating self-signed certificate for %q cert=%s key=%s\n", hostname, certPath, keyPath)
+
+	if err := generateSelfSignedCert(hostname, certPath, keyPath); err != nil {
+		return fmt.Errorf("generate self-signed TLS cert: %w", err)
+	}
+
+	fmt.Printf("generated self-signed TLS cert/key cert=%s key=%s\n", certPath, keyPath)
+	return nil
+}
+
+func generateSelfSignedCert(hostname, certPath, keyPath string) error {
+	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return fmt.Errorf("generate ECDSA key: %w", err)
+	}
+
+	serialMax := new(big.Int).Lsh(big.NewInt(1), 128)
+	serial, err := rand.Int(rand.Reader, serialMax)
+	if err != nil {
+		return fmt.Errorf("generate serial number: %w", err)
+	}
+
+	now := time.Now().UTC()
+	template := &x509.Certificate{
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: hostname},
+		NotBefore:    now.Add(-1 * time.Minute),
+		NotAfter:     now.Add(10 * 365 * 24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		DNSNames: []string{
+			hostname,
+			"localhost",
+		},
+		IPAddresses: []net.IP{
+			net.ParseIP("127.0.0.1"),
+			net.ParseIP("::1"),
+		},
+	}
+	if hostname != "localhost" {
+		template.DNSNames = append(template.DNSNames, hostname)
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &privKey.PublicKey, privKey)
+	if err != nil {
+		return fmt.Errorf("create certificate: %w", err)
+	}
+
+	keyDER, err := x509.MarshalPKCS8PrivateKey(privKey)
+	if err != nil {
+		return fmt.Errorf("marshal private key: %w", err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(certPath), 0o755); err != nil {
+		return fmt.Errorf("create cert directory: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(keyPath), 0o700); err != nil {
+		return fmt.Errorf("create key directory: %w", err)
+	}
+
+	certFile, err := os.OpenFile(certPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return fmt.Errorf("create cert file %s: %w", certPath, err)
+	}
+	defer certFile.Close()
+	if err := pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: certDER}); err != nil {
+		return fmt.Errorf("write cert PEM: %w", err)
+	}
+
+	keyFile, err := os.OpenFile(keyPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("create key file %s: %w", keyPath, err)
+	}
+	defer keyFile.Close()
+	if err := pem.Encode(keyFile, &pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}); err != nil {
+		return fmt.Errorf("write key PEM: %w", err)
 	}
 
 	return nil
