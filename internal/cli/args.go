@@ -49,8 +49,8 @@ func ExecuteControl() error {
 		},
 	}
 	reloadCmd := &cobra.Command{
-		Use:   "reload",
-		Short: "Stage TLS artifacts under /run and reload running webd",
+		Use:     "reload",
+		Short:   "Stage TLS artifacts under /run and reload running webd",
 		GroupID: "ops",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			reloadOpts.HTTPAddr = runOpts.HTTPAddr
@@ -69,8 +69,8 @@ func ExecuteControl() error {
 
 	reloadTimerInterval := defaultReloadTimerPeriod
 	reloadTimerCmd := &cobra.Command{
-		Use:   "reload-timer",
-		Short: "Manage periodic local TLS refresh timer for webd",
+		Use:     "reload-timer",
+		Short:   "Manage periodic local TLS refresh timer for webd",
 		GroupID: "ops",
 	}
 	reloadTimerAddCmd := &cobra.Command{
