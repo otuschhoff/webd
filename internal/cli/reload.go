@@ -400,11 +400,9 @@ func buildRuntimeHandler(route Route, uid, gid int, stagedCAs map[string]*staged
 	port := u.Port()
 	if port == "" {
 		switch protocol {
-		case "http":
-		case "ws":
+		case "http", "ws":
 			port = "80"
-		case "https":
-		case "wss":
+		case "https", "wss":
 			port = "443"
 		default:
 			return server.Handler{}, fmt.Errorf("unsupported scheme %q", u.Scheme)
