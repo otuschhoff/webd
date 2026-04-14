@@ -114,6 +114,8 @@ Rules:
 
 - `routes` must contain at least one entry.
 - `path` must begin with `/` (empty is treated as `/`).
+- `path` supports finite shell-style expansion with bracket classes and brace lists (for example `/proj[23]/{admin,design}`).
+- A globbed `path` is expanded by `webctl reload` into multiple concrete route entries before runtime JSON generation.
 - Each route must set exactly one of `handler` or `redirect`.
 - `handler` must resolve to a valid absolute URL (template placeholders are expanded first).
 - `redirect` must be a valid absolute URL and returns `301 Moved Permanently`.
@@ -152,6 +154,21 @@ YAML templates (resolved by `webctl reload` before writing runtime JSON):
 - Runtime `/run/webd/config.json` is always fully resolved and contains no template placeholders.
 
 Config examples:
+
+Route path glob expansion (one YAML route expanded to multiple concrete paths):
+
+```yaml
+routes:
+  - path: /proj[23]/{admin,design}
+    handler: http://backend.local/${path}
+```
+
+This expands to route paths:
+
+- `/proj2/admin`
+- `/proj2/design`
+- `/proj3/admin`
+- `/proj3/design`
 
 Handler template with inline path suffix:
 

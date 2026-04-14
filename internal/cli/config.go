@@ -71,6 +71,10 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config %s as yaml: %w", path, err)
 	}
 
+	if err := expandRoutePathGlobs(&cfg); err != nil {
+		return nil, err
+	}
+
 	if err := resolveTemplates(&cfg); err != nil {
 		return nil, err
 	}
@@ -79,6 +83,199 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+const maxExpandedPathVariants = 1024
+
+func expandRoutePathGlobs(cfg *Config) error {
+	if cfg == nil || len(cfg.Routes) == 0 {
+		return nil
+	}
+
+	expanded := make([]Route, 0, len(cfg.Routes))
+	for _, route := range cfg.Routes {
+		paths, err := expandPathGlobVariants(route.Path)
+		if err != nil {
+			return fmt.Errorf("expand route path glob %q: %w", strings.TrimSpace(route.Path), err)
+		}
+		for _, p := range paths {
+			clone := route
+			clone.Path = p
+			expanded = append(expanded, clone)
+		}
+	}
+	cfg.Routes = expanded
+	return nil
+}
+
+func expandPathGlobVariants(path string) ([]string, error) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return []string{path}, nil
+	}
+
+	variants, err := expandPathToken(trimmed)
+	if err != nil {
+		return nil, err
+	}
+
+	uniq := make([]string, 0, len(variants))
+	seen := make(map[string]struct{}, len(variants))
+	for _, v := range variants {
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		uniq = append(uniq, v)
+	}
+	return uniq, nil
+}
+
+func expandPathToken(input string) ([]string, error) {
+	if idx := strings.IndexByte(input, '{'); idx >= 0 {
+		closeIdx, err := findMatchingDelimiter(input, idx, '{', '}')
+		if err != nil {
+			return nil, err
+		}
+		inside := input[idx+1 : closeIdx]
+		options, err := splitBraceOptions(inside)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]string, 0)
+		prefix := input[:idx]
+		suffix := input[closeIdx+1:]
+		for _, opt := range options {
+			expandedSuffix, err := expandPathToken(suffix)
+			if err != nil {
+				return nil, err
+			}
+			for _, s := range expandedSuffix {
+				out = append(out, prefix+opt+s)
+				if len(out) > maxExpandedPathVariants {
+					return nil, fmt.Errorf("too many expanded paths (>%d)", maxExpandedPathVariants)
+				}
+			}
+		}
+		return out, nil
+	}
+
+	if idx := strings.IndexByte(input, '['); idx >= 0 {
+		closeIdx, err := findMatchingDelimiter(input, idx, '[', ']')
+		if err != nil {
+			return nil, err
+		}
+		items, err := expandBracketClass(input[idx+1 : closeIdx])
+		if err != nil {
+			return nil, err
+		}
+		out := make([]string, 0)
+		prefix := input[:idx]
+		suffix := input[closeIdx+1:]
+		expandedSuffix, err := expandPathToken(suffix)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range items {
+			for _, s := range expandedSuffix {
+				out = append(out, prefix+item+s)
+				if len(out) > maxExpandedPathVariants {
+					return nil, fmt.Errorf("too many expanded paths (>%d)", maxExpandedPathVariants)
+				}
+			}
+		}
+		return out, nil
+	}
+
+	return []string{input}, nil
+}
+
+func findMatchingDelimiter(s string, openIdx int, open, close byte) (int, error) {
+	depth := 0
+	for i := openIdx; i < len(s); i++ {
+		if s[i] == open {
+			depth++
+			continue
+		}
+		if s[i] == close {
+			depth--
+			if depth == 0 {
+				return i, nil
+			}
+		}
+	}
+	return -1, fmt.Errorf("unmatched %q in %q", string(open), s)
+}
+
+func splitBraceOptions(s string) ([]string, error) {
+	parts := make([]string, 0)
+	start := 0
+	depthCurly := 0
+	depthSquare := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '{':
+			depthCurly++
+		case '}':
+			if depthCurly > 0 {
+				depthCurly--
+			}
+		case '[':
+			depthSquare++
+		case ']':
+			if depthSquare > 0 {
+				depthSquare--
+			}
+		case ',':
+			if depthCurly == 0 && depthSquare == 0 {
+				parts = append(parts, s[start:i])
+				start = i + 1
+			}
+		}
+	}
+	parts = append(parts, s[start:])
+	if len(parts) == 0 {
+		return nil, fmt.Errorf("empty brace expression")
+	}
+	for _, p := range parts {
+		if p == "" {
+			return nil, fmt.Errorf("empty option in brace expression")
+		}
+	}
+	return parts, nil
+}
+
+func expandBracketClass(classBody string) ([]string, error) {
+	if classBody == "" {
+		return nil, fmt.Errorf("empty bracket expression")
+	}
+	if strings.HasPrefix(classBody, "!") || strings.HasPrefix(classBody, "^") {
+		return nil, fmt.Errorf("negated bracket expressions are not supported: [%s]", classBody)
+	}
+
+	items := make([]string, 0)
+	for i := 0; i < len(classBody); i++ {
+		ch := classBody[i]
+		if i+2 < len(classBody) && classBody[i+1] == '-' {
+			end := classBody[i+2]
+			if ch > end {
+				return nil, fmt.Errorf("invalid descending range %q", classBody[i:i+3])
+			}
+			for c := ch; c <= end; c++ {
+				items = append(items, string(c))
+				if len(items) > maxExpandedPathVariants {
+					return nil, fmt.Errorf("bracket expansion too large (>%d)", maxExpandedPathVariants)
+				}
+			}
+			i += 2
+			continue
+		}
+		items = append(items, string(ch))
+	}
+	if len(items) == 0 {
+		return nil, fmt.Errorf("empty bracket expression")
+	}
+	return items, nil
 }
 
 var handlerTemplateRefRe = regexp.MustCompile(`\$\{\s*([A-Za-z0-9_.-]+)\s*\}`)
