@@ -31,8 +31,10 @@ const sourceConfigSchemaJSON = `{
             "minLength": 1
           },
           "websocket": {
-            "type": "string",
-            "minLength": 1
+            "anyOf": [
+              {"type": "string", "minLength": 1},
+              {"type": "boolean", "enum": [false]}
+            ]
           },
           "redirect": {
             "type": "string",

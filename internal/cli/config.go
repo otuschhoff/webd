@@ -26,6 +26,56 @@ type Templates struct {
 	Handler map[string]string   `yaml:"handler,omitempty" json:"handler,omitempty"`
 }
 
+// WebsocketValue is the YAML-decoded value of the websocket field on a route.
+// A nil pointer means auto-derive ws/wss from the primary handler URL.
+// false disables WebSocket upgrade handling for the route.
+// A non-empty URL string routes WebSocket upgrades to that explicit backend.
+type WebsocketValue struct {
+	disabled bool
+	url      string
+}
+
+// IsDisabled reports whether websocket handling was explicitly disabled.
+func (w *WebsocketValue) IsDisabled() bool {
+	if w == nil {
+		return false
+	}
+	return w.disabled
+}
+
+// URL returns the explicit override URL, or empty string for auto-derive.
+func (w *WebsocketValue) URL() string {
+	if w == nil {
+		return ""
+	}
+	return w.url
+}
+
+// UnmarshalYAML implements yaml.Unmarshaler.
+func (w *WebsocketValue) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Tag {
+	case "!!bool":
+		var b bool
+		if err := value.Decode(&b); err != nil {
+			return err
+		}
+		if b {
+			return fmt.Errorf("websocket: true is not valid; omit the field for auto-detection or provide a URL")
+		}
+		w.disabled = true
+		return nil
+	case "!!str", "":
+		var s string
+		if err := value.Decode(&s); err != nil {
+			return err
+		}
+		w.url = strings.TrimSpace(s)
+		return nil
+	default:
+		return fmt.Errorf("websocket must be a URL string or false, got %s", value.Tag)
+	}
+}
+
 // Route maps a URL path prefix to a handler base URL.
 type Route struct {
 	// Path is matched against the incoming request path.
@@ -37,9 +87,11 @@ type Route struct {
 	Redirect string `yaml:"redirect,omitempty" json:"redirect,omitempty"`
 	// AllowedIPv4 optionally restricts this route to specific IPv4 addresses, ranges, and/or CIDRs.
 	AllowedIPv4 []string `yaml:"allowed_ipv4,omitempty" json:"allowed_ipv4,omitempty"`
-	// Websocket is the absolute WS/WSS/HTTP/HTTPS handler URL for WebSocket upgrade requests.
-	// When set, incoming requests with Upgrade: websocket are forwarded here instead of Handler.
-	Websocket string `yaml:"websocket,omitempty" json:"websocket,omitempty"`
+	// Websocket configures WebSocket upgrade handling for this route.
+	// Absent (nil): auto-derive ws:// or wss:// from the primary handler URL.
+	// false: disable WebSocket upgrade detection entirely for this route.
+	// A URL string: override the WebSocket backend (e.g. different port).
+	Websocket *WebsocketValue `yaml:"websocket,omitempty" json:"-"`
 	// Browse enables directory listing when a file:// handler maps to a directory path.
 	Browse bool `yaml:"browse,omitempty" json:"browse,omitempty"`
 	// Insecure enables endpoint certificate pinning for https/wss handlers.
@@ -104,6 +156,10 @@ func expandRoutePathGlobs(cfg *Config) error {
 		for _, p := range paths {
 			clone := route
 			clone.Path = p
+			if route.Websocket != nil {
+				wsCopy := *route.Websocket
+				clone.Websocket = &wsCopy
+			}
 			expanded = append(expanded, clone)
 		}
 	}
@@ -302,8 +358,10 @@ func resolveTemplates(cfg *Config) error {
 	if err := validateTemplateNames(handlerTemplates, "templates.handler"); err != nil {
 		return err
 	}
-	if _, reserved := handlerTemplates["path"]; reserved {
-		return fmt.Errorf("templates.handler template name %q is reserved", "path")
+	for _, reserved := range []string{"path", "false", "true"} {
+		if _, ok := handlerTemplates[reserved]; ok {
+			return fmt.Errorf("templates.handler template name %q is reserved", reserved)
+		}
 	}
 
 	for i := range cfg.Routes {
@@ -316,11 +374,13 @@ func resolveTemplates(cfg *Config) error {
 		}
 		r.Handler = resolvedHandler
 
-		resolvedWebsocket, err := resolveHandlerTemplateRefs(r.Websocket, handlerTemplates, routePathTemplate)
-		if err != nil {
-			return fmt.Errorf("route path=%q websocket template expansion failed: %w", strings.TrimSpace(r.Path), err)
+		if r.Websocket != nil && !r.Websocket.disabled && r.Websocket.url != "" {
+			resolved, err := resolveHandlerTemplateRefs(r.Websocket.url, handlerTemplates, routePathTemplate)
+			if err != nil {
+				return fmt.Errorf("route path=%q websocket template expansion failed: %w", strings.TrimSpace(r.Path), err)
+			}
+			r.Websocket.url = resolved
 		}
-		r.Websocket = resolvedWebsocket
 
 		resolvedIPv4, err := resolveIPv4TemplateRefs(r.AllowedIPv4, ipv4Templates)
 		if err != nil {
@@ -585,21 +645,21 @@ func Validate(cfg *Config) error {
 			return fmt.Errorf("browse is supported only for file handlers for path %q", prefix)
 		}
 
-		if strings.TrimSpace(r.Websocket) != "" {
+		if r.Websocket != nil && !r.Websocket.disabled && r.Websocket.url != "" {
 			if !hasHandler {
 				return fmt.Errorf("websocket requires handler for path %q", prefix)
 			}
-			wsRaw := strings.TrimSpace(r.Websocket)
+			wsRaw := r.Websocket.url
 			wu, err := url.Parse(wsRaw)
 			if err != nil || wu.Scheme == "" {
-				return fmt.Errorf("invalid websocket for path %q: %q", prefix, r.Websocket)
+				return fmt.Errorf("invalid websocket for path %q: %q", prefix, wsRaw)
 			}
 			wsScheme := strings.ToLower(strings.TrimSpace(wu.Scheme))
 			if wsScheme != "http" && wsScheme != "https" && wsScheme != "ws" && wsScheme != "wss" {
-				return fmt.Errorf("invalid websocket scheme for path %q (must be ws, wss, http, or https): %q", prefix, r.Websocket)
+				return fmt.Errorf("invalid websocket scheme for path %q (must be ws, wss, http, or https): %q", prefix, wsRaw)
 			}
 			if strings.TrimSpace(wu.Host) == "" {
-				return fmt.Errorf("invalid websocket for path %q: missing host in %q", prefix, r.Websocket)
+				return fmt.Errorf("invalid websocket for path %q: missing host in %q", prefix, wsRaw)
 			}
 		}
 	}

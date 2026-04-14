@@ -352,11 +352,20 @@ func buildRuntimeConfig(cfg *Config, uid, gid int, stagedCAs map[string]*stagedT
 			return nil, fmt.Errorf("route path=%q handler=%q: %w", route.Path, route.Handler, err)
 		}
 
+		var wsURL string
+		if route.Websocket.IsDisabled() {
+			// explicitly disabled; wsURL stays empty
+		} else if override := route.Websocket.URL(); override != "" {
+			wsURL = override
+		} else if derived, ok := autoWebsocketURL(route.Handler); ok {
+			wsURL = derived
+		}
+
 		var wsHandler *server.Handler
-		if strings.TrimSpace(route.Websocket) != "" {
-			wsh, wsErr := buildRuntimeHandlerForURL(route.Websocket, route.Insecure, route.TrustedCA, uid, gid, stagedCAs)
+		if wsURL != "" {
+			wsh, wsErr := buildRuntimeHandlerForURL(wsURL, route.Insecure, route.TrustedCA, uid, gid, stagedCAs)
 			if wsErr != nil {
-				return nil, fmt.Errorf("route path=%q websocket=%q: %w", route.Path, route.Websocket, wsErr)
+				return nil, fmt.Errorf("route path=%q websocket=%q: %w", route.Path, wsURL, wsErr)
 			}
 			wsHandler = &wsh
 		}
@@ -462,6 +471,22 @@ func buildRuntimeHandlerForURL(handlerURL string, insecure bool, trustedCA *Trus
 
 	handlerCfg.TrustedCA = resolvedTrustedCA
 	return handlerCfg, nil
+}
+
+func autoWebsocketURL(handlerRawURL string) (string, bool) {
+	u, err := url.Parse(strings.TrimSpace(handlerRawURL))
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", false
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http":
+		u.Scheme = "ws"
+	case "https":
+		u.Scheme = "wss"
+	default:
+		return "", false
+	}
+	return u.String(), true
 }
 
 func lookupIPv4Addresses(hostname string) ([]string, error) {
