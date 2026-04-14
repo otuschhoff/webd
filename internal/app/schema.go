@@ -30,6 +30,10 @@ const sourceConfigSchemaJSON = `{
             "type": "string",
             "minLength": 1
           },
+          "websocket": {
+            "type": "string",
+            "minLength": 1
+          },
           "redirect": {
             "type": "string",
             "pattern": "^[A-Za-z][A-Za-z0-9+.-]*://.+"
@@ -150,6 +154,59 @@ const runtimeConfigSchemaJSON = `{
           "redirect": {
             "type": "string",
             "pattern": "^[A-Za-z][A-Za-z0-9+.-]*://.+"
+          },
+          "websocket_handler": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "protocol": {
+                "type": "string",
+                "enum": ["http", "https", "ws", "wss"]
+              },
+              "hostname": {
+                "type": "string",
+                "minLength": 1
+              },
+              "port": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^/.*"
+              },
+              "raw_query": {
+                "type": "string"
+              },
+              "ipv4_addresses": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "trusted_ca": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "file"],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "pin_cert": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "required": ["protocol", "hostname", "port", "ipv4_addresses"]
           },
           "handler": {
             "type": "object",

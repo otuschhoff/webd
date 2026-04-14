@@ -26,6 +26,7 @@ type routeProxy struct {
 	prefix            string
 	redirectTarget    string
 	proxy             *httputil.ReverseProxy
+	websocketProxy    *httputil.ReverseProxy
 	localHandler      http.Handler
 	allowedIPv4Ranges []IPv4Range
 }
@@ -84,7 +85,11 @@ func Run(opts RunOptions) error {
 		return fmt.Errorf("route config error: %w", err)
 	}
 	for i, route := range cfg.Routes {
-		opsLog.Printf("route configured index=%d path=%q target=%s", i, strings.TrimSpace(route.Path), formatRouteTarget(route))
+		ops := formatRouteTarget(route)
+		if route.WebsocketHandler != nil {
+			ops += " websocket=" + formatHandler(*route.WebsocketHandler)
+		}
+		opsLog.Printf("route configured index=%d path=%q target=%s", i, strings.TrimSpace(route.Path), ops)
 	}
 
 	var activeRoutes atomic.Value
@@ -177,12 +182,17 @@ func Run(opts RunOptions) error {
 
 func closeRouteProxies(routes []routeProxy) {
 	for _, route := range routes {
-		if route.proxy == nil || route.proxy.Transport == nil {
-			continue
-		}
-		if closer, ok := route.proxy.Transport.(interface{ CloseIdleConnections() }); ok {
-			closer.CloseIdleConnections()
-		}
+		closeProxyTransport(route.proxy)
+		closeProxyTransport(route.websocketProxy)
+	}
+}
+
+func closeProxyTransport(proxy *httputil.ReverseProxy) {
+	if proxy == nil || proxy.Transport == nil {
+		return
+	}
+	if closer, ok := proxy.Transport.(interface{ CloseIdleConnections() }); ok {
+		closer.CloseIdleConnections()
 	}
 }
 
@@ -237,7 +247,30 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			errLog.Printf("proxy_error handler=%q path=%q err=%v", handler, req.URL.Path, proxyErr)
 		}
 
-		routes = append(routes, routeProxy{prefix: prefix, proxy: proxy, allowedIPv4Ranges: append([]IPv4Range(nil), r.AllowedIPv4Ranges...)})
+		var wsProxy *httputil.ReverseProxy
+		if r.WebsocketHandler != nil {
+			wsCfg := *r.WebsocketHandler
+			wsTargetURL := handlerURL(wsCfg)
+			wsTarget := wsTargetURL.String()
+			wsProxy = httputil.NewSingleHostReverseProxy(wsTargetURL)
+			wsProxy.BufferPool = reverseProxyBufferPool
+			wsOrigDir := wsProxy.Director
+			wsProxy.Director = func(req *http.Request) {
+				wsOrigDir(req)
+				handleProxyForwardedHeaders(req)
+			}
+			wsTransport, wsTransportErr := handleProxyTransport(wsCfg)
+			if wsTransportErr != nil {
+				return nil, fmt.Errorf("configure websocket transport for path %q: %w", prefix, wsTransportErr)
+			}
+			wsProxy.Transport = wsTransport
+			wsProxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, proxyErr error) {
+				http.Error(w, "Bad Gateway", http.StatusBadGateway)
+				errLog.Printf("websocket_proxy_error handler=%q path=%q err=%v", wsTarget, req.URL.Path, proxyErr)
+			}
+		}
+
+		routes = append(routes, routeProxy{prefix: prefix, proxy: proxy, websocketProxy: wsProxy, allowedIPv4Ranges: append([]IPv4Range(nil), r.AllowedIPv4Ranges...)})
 	}
 
 	sort.Slice(routes, func(i, j int) bool {

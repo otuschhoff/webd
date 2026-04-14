@@ -37,6 +37,9 @@ type Route struct {
 	Redirect string `yaml:"redirect,omitempty" json:"redirect,omitempty"`
 	// AllowedIPv4 optionally restricts this route to specific IPv4 addresses, ranges, and/or CIDRs.
 	AllowedIPv4 []string `yaml:"allowed_ipv4,omitempty" json:"allowed_ipv4,omitempty"`
+	// Websocket is the absolute WS/WSS/HTTP/HTTPS handler URL for WebSocket upgrade requests.
+	// When set, incoming requests with Upgrade: websocket are forwarded here instead of Handler.
+	Websocket string `yaml:"websocket,omitempty" json:"websocket,omitempty"`
 	// Browse enables directory listing when a file:// handler maps to a directory path.
 	Browse bool `yaml:"browse,omitempty" json:"browse,omitempty"`
 	// Insecure enables endpoint certificate pinning for https/wss handlers.
@@ -313,6 +316,12 @@ func resolveTemplates(cfg *Config) error {
 		}
 		r.Handler = resolvedHandler
 
+		resolvedWebsocket, err := resolveHandlerTemplateRefs(r.Websocket, handlerTemplates, routePathTemplate)
+		if err != nil {
+			return fmt.Errorf("route path=%q websocket template expansion failed: %w", strings.TrimSpace(r.Path), err)
+		}
+		r.Websocket = resolvedWebsocket
+
 		resolvedIPv4, err := resolveIPv4TemplateRefs(r.AllowedIPv4, ipv4Templates)
 		if err != nil {
 			return fmt.Errorf("route path=%q allowed_ipv4 template expansion failed: %w", strings.TrimSpace(r.Path), err)
@@ -574,6 +583,24 @@ func Validate(cfg *Config) error {
 
 		if r.Browse && scheme != "file" {
 			return fmt.Errorf("browse is supported only for file handlers for path %q", prefix)
+		}
+
+		if strings.TrimSpace(r.Websocket) != "" {
+			if !hasHandler {
+				return fmt.Errorf("websocket requires handler for path %q", prefix)
+			}
+			wsRaw := strings.TrimSpace(r.Websocket)
+			wu, err := url.Parse(wsRaw)
+			if err != nil || wu.Scheme == "" {
+				return fmt.Errorf("invalid websocket for path %q: %q", prefix, r.Websocket)
+			}
+			wsScheme := strings.ToLower(strings.TrimSpace(wu.Scheme))
+			if wsScheme != "http" && wsScheme != "https" && wsScheme != "ws" && wsScheme != "wss" {
+				return fmt.Errorf("invalid websocket scheme for path %q (must be ws, wss, http, or https): %q", prefix, r.Websocket)
+			}
+			if strings.TrimSpace(wu.Host) == "" {
+				return fmt.Errorf("invalid websocket for path %q: missing host in %q", prefix, r.Websocket)
+			}
 		}
 	}
 	return nil

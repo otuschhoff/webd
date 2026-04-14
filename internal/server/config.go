@@ -40,6 +40,7 @@ type Route struct {
 	Browse            bool        `json:"browse,omitempty"`
 	Redirect          string      `json:"redirect,omitempty"`
 	Handler           *Handler    `json:"handler,omitempty"`
+	WebsocketHandler  *Handler    `json:"websocket_handler,omitempty"`
 }
 
 // Config is the runtime JSON configuration consumed by the webd daemon.
@@ -167,6 +168,37 @@ func Validate(cfg *Config) error {
 			}
 			if strings.TrimSpace(handler.TrustedCA.Name) == "" || strings.TrimSpace(handler.TrustedCA.File) == "" {
 				return fmt.Errorf("trusted_ca name and file are required for path %q", prefix)
+			}
+		}
+
+		if r.WebsocketHandler != nil {
+			wsh := r.WebsocketHandler
+			wsProtocol := strings.ToLower(strings.TrimSpace(wsh.Protocol))
+			if wsProtocol != "http" && wsProtocol != "https" && wsProtocol != "ws" && wsProtocol != "wss" {
+				return fmt.Errorf("invalid websocket_handler protocol for path %q: %q", prefix, wsh.Protocol)
+			}
+			if strings.TrimSpace(wsh.Hostname) == "" {
+				return fmt.Errorf("websocket_handler hostname is required for path %q", prefix)
+			}
+			if wsh.Port < 1 || wsh.Port > 65535 {
+				return fmt.Errorf("websocket_handler port must be between 1 and 65535 for path %q: %d", prefix, wsh.Port)
+			}
+			if len(wsh.IPv4Addresses) == 0 {
+				return fmt.Errorf("websocket_handler ipv4_addresses must contain at least one address for path %q", prefix)
+			}
+			for _, rawIP := range wsh.IPv4Addresses {
+				ip := net.ParseIP(strings.TrimSpace(rawIP))
+				if ip == nil || ip.To4() == nil {
+					return fmt.Errorf("invalid websocket_handler IPv4 address for path %q: %q", prefix, rawIP)
+				}
+			}
+			if wsh.TrustedCA != nil {
+				if wsProtocol != "https" && wsProtocol != "wss" {
+					return fmt.Errorf("websocket_handler trusted_ca is supported only for https and wss for path %q", prefix)
+				}
+				if strings.TrimSpace(wsh.TrustedCA.Name) == "" || strings.TrimSpace(wsh.TrustedCA.File) == "" {
+					return fmt.Errorf("websocket_handler trusted_ca name and file are required for path %q", prefix)
+				}
 			}
 		}
 	}

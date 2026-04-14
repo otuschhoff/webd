@@ -351,11 +351,22 @@ func buildRuntimeConfig(cfg *Config, uid, gid int, stagedCAs map[string]*stagedT
 		if err != nil {
 			return nil, fmt.Errorf("route path=%q handler=%q: %w", route.Path, route.Handler, err)
 		}
+
+		var wsHandler *server.Handler
+		if strings.TrimSpace(route.Websocket) != "" {
+			wsh, wsErr := buildRuntimeHandlerForURL(route.Websocket, route.Insecure, route.TrustedCA, uid, gid, stagedCAs)
+			if wsErr != nil {
+				return nil, fmt.Errorf("route path=%q websocket=%q: %w", route.Path, route.Websocket, wsErr)
+			}
+			wsHandler = &wsh
+		}
+
 		resolved.Routes = append(resolved.Routes, server.Route{
 			Path:              route.Path,
 			AllowedIPv4Ranges: allowedIPv4Ranges,
 			Browse:            route.Browse,
 			Handler:           &handler,
+			WebsocketHandler:  wsHandler,
 		})
 	}
 	return resolved, nil
@@ -370,7 +381,11 @@ type stagedTrustedCA struct {
 }
 
 func buildRuntimeHandler(route Route, uid, gid int, stagedCAs map[string]*stagedTrustedCA) (server.Handler, error) {
-	u, err := url.Parse(route.Handler)
+	return buildRuntimeHandlerForURL(route.Handler, route.Insecure, route.TrustedCA, uid, gid, stagedCAs)
+}
+
+func buildRuntimeHandlerForURL(handlerURL string, insecure bool, trustedCA *TrustedCA, uid, gid int, stagedCAs map[string]*stagedTrustedCA) (server.Handler, error) {
+	u, err := url.Parse(handlerURL)
 	if err != nil || u.Scheme == "" {
 		return server.Handler{}, fmt.Errorf("invalid handler URL")
 	}
@@ -384,7 +399,7 @@ func buildRuntimeHandler(route Route, uid, gid int, stagedCAs map[string]*staged
 		if strings.TrimSpace(u.Path) == "" || !filepath.IsAbs(u.Path) {
 			return server.Handler{}, fmt.Errorf("file handler path must be absolute")
 		}
-		if route.TrustedCA != nil {
+		if trustedCA != nil {
 			return server.Handler{}, fmt.Errorf("trusted_ca is not supported for file handlers")
 		}
 		return server.Handler{
@@ -419,7 +434,7 @@ func buildRuntimeHandler(route Route, uid, gid int, stagedCAs map[string]*staged
 		return server.Handler{}, err
 	}
 
-	var trustedCA *server.TrustedCA
+	var resolvedTrustedCA *server.TrustedCA
 	handlerCfg := server.Handler{
 		Protocol:      protocol,
 		Hostname:      hostname,
@@ -428,24 +443,24 @@ func buildRuntimeHandler(route Route, uid, gid int, stagedCAs map[string]*staged
 		RawQuery:      u.RawQuery,
 		IPv4Addresses: resolvedIPs,
 	}
-	if route.TrustedCA != nil {
-		trustedCA, err = stageTrustedCA(route.TrustedCA, handlerCfg, uid, gid, stagedCAs)
+	if trustedCA != nil {
+		resolvedTrustedCA, err = stageTrustedCA(trustedCA, handlerCfg, uid, gid, stagedCAs)
 		if err != nil {
 			return server.Handler{}, err
 		}
-	} else if route.Insecure {
-		trustedCA, err = stageInsecureTrustedCert(handlerCfg, uid, gid, stagedCAs)
+	} else if insecure {
+		resolvedTrustedCA, err = stageInsecureTrustedCert(handlerCfg, uid, gid, stagedCAs)
 		if err != nil {
 			return server.Handler{}, err
 		}
 	} else if protocol == "https" || protocol == "wss" {
-		trustedCA, err = stageAutoTrustedCA(handlerCfg, uid, gid, stagedCAs)
+		resolvedTrustedCA, err = stageAutoTrustedCA(handlerCfg, uid, gid, stagedCAs)
 		if err != nil {
 			return server.Handler{}, err
 		}
 	}
 
-	handlerCfg.TrustedCA = trustedCA
+	handlerCfg.TrustedCA = resolvedTrustedCA
 	return handlerCfg, nil
 }
 

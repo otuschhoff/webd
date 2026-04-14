@@ -180,8 +180,17 @@ func handleMatchedRouteRequest(w http.ResponseWriter, r *http.Request, route rou
 		handleNotFoundRequest(w, r)
 		return true
 	}
+	if route.websocketProxy != nil && isWebSocketUpgrade(r) {
+		handleProxyRequest(w, r, route.websocketProxy)
+		return true
+	}
 	handleProxyRequest(w, r, route.proxy)
 	return true
+}
+
+func isWebSocketUpgrade(r *http.Request) bool {
+	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket") &&
+		strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade")
 }
 
 func handleForbiddenRequest(w http.ResponseWriter, r *http.Request, routePrefix, clientIP string, errLog *log.Logger) {
