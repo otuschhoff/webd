@@ -144,6 +144,8 @@ YAML templates (resolved by `webctl reload` before writing runtime JSON):
 - `templates.handler.<name>` is a single string value (typically a handler URL prefix).
 - `templates.handler.path` is reserved and not allowed.
 - Handler references can appear inline, for example `handler: "${svn}/design"`.
+- If `handler` exactly matches a handler-template name, it is treated as shorthand for `${template}/${path}`.
+- Example shorthand: `path: /proj2` with `handler: svn` becomes `http://svn-srv.local/proj2` when `templates.handler.svn: http://svn-srv.local`.
 - `${path}` is a built-in handler placeholder that expands to the current route path without the leading slash.
 - Example: route `path: /api` with `handler: "http://backend.local/${path}"` expands to `http://backend.local/api`.
 - IPv4 template references under `allowed_ipv4` can use either a bare template name (recommended) or `{{name}}`, for example `- global` or `- "{{global}}"`.
@@ -165,6 +167,23 @@ routes:
   - path: /
     handler: http://127.0.0.1:3000
 ```
+
+Handler template shorthand (`handler: <template-name>`):
+
+```yaml
+templates:
+  handler:
+    svn: http://svn-srv.local
+
+routes:
+  - path: /proj2
+    handler: svn
+
+  - path: /
+    handler: http://127.0.0.1:3000
+```
+
+The shorthand expands `handler: svn` to `handler: "${svn}/${path}"`.
 
 Built-in `${path}` placeholder in handler:
 

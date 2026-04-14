@@ -162,6 +162,12 @@ func resolveHandlerTemplateRefs(handler string, templates map[string]string, rou
 		return handler, nil
 	}
 
+	// Shorthand: if handler exactly matches a template name, expand it as
+	// <template>/<path> where <path> omits the leading '/'.
+	if base, ok := templates[raw]; ok {
+		return appendPathSuffix(base, routePathValue), nil
+	}
+
 	missing := make([]string, 0)
 	resolved := handlerTemplateRefRe.ReplaceAllStringFunc(raw, func(match string) string {
 		parts := handlerTemplateRefRe.FindStringSubmatch(match)
@@ -186,6 +192,14 @@ func resolveHandlerTemplateRefs(handler string, templates map[string]string, rou
 	}
 
 	return resolved, nil
+}
+
+func appendPathSuffix(base, pathSuffix string) string {
+	base = strings.TrimSpace(base)
+	if pathSuffix == "" {
+		return base
+	}
+	return strings.TrimRight(base, "/") + "/" + strings.TrimLeft(pathSuffix, "/")
 }
 
 func resolveIPv4TemplateRefs(entries []string, templates map[string][]string) ([]string, error) {
