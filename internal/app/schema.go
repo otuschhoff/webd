@@ -36,7 +36,7 @@ const sourceConfigSchemaJSON = `{
               {"type": "boolean", "enum": [false]}
             ]
           },
-          "location_rewrite": {
+          "rewrite_location": {
             "type": "object",
             "additionalProperties": false,
             "required": ["match", "replace"],
@@ -227,7 +227,7 @@ const runtimeConfigSchemaJSON = `{
             },
             "required": ["protocol", "hostname", "port", "ipv4_addresses"]
           },
-          "location_rewrite": {
+          "rewrite_location": {
             "type": "object",
             "additionalProperties": false,
             "required": ["match", "replace"],

@@ -240,13 +240,13 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 
 		var locationRewriteRe *regexp.Regexp
 		locationReplace := ""
-		if r.LocationRewrite != nil {
-			compiled, compileErr := regexp.Compile(normalizeRegexPattern(r.LocationRewrite.Match))
+		if r.RewriteLocation != nil {
+			compiled, compileErr := regexp.Compile(normalizeRegexPattern(r.RewriteLocation.Match))
 			if compileErr != nil {
-				return nil, fmt.Errorf("compile location_rewrite.match for path %q: %w", prefix, compileErr)
+				return nil, fmt.Errorf("compile rewrite_location.match for path %q: %w", prefix, compileErr)
 			}
 			locationRewriteRe = compiled
-			locationReplace = r.LocationRewrite.Replace
+			locationReplace = r.RewriteLocation.Replace
 		}
 		rewriteBaseHref := true
 		if r.RewriteBaseHref != nil {

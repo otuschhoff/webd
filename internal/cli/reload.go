@@ -343,11 +343,11 @@ func buildRuntimeConfig(cfg *Config, uid, gid int, stagedCAs map[string]*stagedT
 			rewriteBaseHref = &v
 		}
 
-		var locationRewrite *server.LocationRewrite
-		if route.LocationRewrite != nil {
-			locationRewrite = &server.LocationRewrite{
-				Match:   route.LocationRewrite.Match,
-				Replace: route.LocationRewrite.Replace,
+		var rewriteLocation *server.RewriteLocation
+		if route.RewriteLocation != nil {
+			rewriteLocation = &server.RewriteLocation{
+				Match:   route.RewriteLocation.Match,
+				Replace: route.RewriteLocation.Replace,
 			}
 		}
 
@@ -391,7 +391,7 @@ func buildRuntimeConfig(cfg *Config, uid, gid int, stagedCAs map[string]*stagedT
 			Browse:            route.Browse,
 			Handler:           &handler,
 			WebsocketHandler:  wsHandler,
-			LocationRewrite:   locationRewrite,
+			RewriteLocation:   rewriteLocation,
 			RewriteBaseHref:   rewriteBaseHref,
 		})
 	}

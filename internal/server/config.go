@@ -24,7 +24,7 @@ type TrustedCA struct {
 	PinCert bool   `json:"pin_cert,omitempty"`
 }
 
-type LocationRewrite struct {
+type RewriteLocation struct {
 	Match   string `json:"match"`
 	Replace string `json:"replace"`
 }
@@ -47,7 +47,7 @@ type Route struct {
 	Redirect          string           `json:"redirect,omitempty"`
 	Handler           *Handler         `json:"handler,omitempty"`
 	WebsocketHandler  *Handler         `json:"websocket_handler,omitempty"`
-	LocationRewrite   *LocationRewrite `json:"location_rewrite,omitempty"`
+	RewriteLocation   *RewriteLocation `json:"rewrite_location,omitempty"`
 	RewriteBaseHref   *bool            `json:"rewrite_base_href,omitempty"`
 }
 
@@ -120,8 +120,8 @@ func Validate(cfg *Config) error {
 			if r.Browse {
 				return fmt.Errorf("browse cannot be used with redirect for path %q", prefix)
 			}
-			if r.LocationRewrite != nil {
-				return fmt.Errorf("location_rewrite cannot be used with redirect for path %q", prefix)
+			if r.RewriteLocation != nil {
+				return fmt.Errorf("rewrite_location cannot be used with redirect for path %q", prefix)
 			}
 			if r.RewriteBaseHref != nil {
 				return fmt.Errorf("rewrite_base_href cannot be used with redirect for path %q", prefix)
@@ -151,8 +151,8 @@ func Validate(cfg *Config) error {
 			if handler.TrustedCA != nil {
 				return fmt.Errorf("trusted_ca is not supported for file handlers for path %q", prefix)
 			}
-			if r.LocationRewrite != nil {
-				return fmt.Errorf("location_rewrite is not supported for file handlers for path %q", prefix)
+			if r.RewriteLocation != nil {
+				return fmt.Errorf("rewrite_location is not supported for file handlers for path %q", prefix)
 			}
 			if r.RewriteBaseHref != nil {
 				return fmt.Errorf("rewrite_base_href is not supported for file handlers for path %q", prefix)
@@ -191,13 +191,13 @@ func Validate(cfg *Config) error {
 			}
 		}
 
-		if r.LocationRewrite != nil {
-			match := strings.TrimSpace(r.LocationRewrite.Match)
+		if r.RewriteLocation != nil {
+			match := strings.TrimSpace(r.RewriteLocation.Match)
 			if match == "" {
-				return fmt.Errorf("location_rewrite.match is required for path %q", prefix)
+				return fmt.Errorf("rewrite_location.match is required for path %q", prefix)
 			}
 			if _, err := regexp.Compile(normalizeRegexPattern(match)); err != nil {
-				return fmt.Errorf("invalid location_rewrite.match regex for path %q: %w", prefix, err)
+				return fmt.Errorf("invalid rewrite_location.match regex for path %q: %w", prefix, err)
 			}
 		}
 
