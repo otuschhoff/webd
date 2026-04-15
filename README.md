@@ -122,6 +122,7 @@ Rules:
 - Non-ACME HTTP requests are permanently redirected (`301`) to the equivalent `https://` URL.
 - ACME challenge requests under `/.well-known/acme-challenge/` are served over HTTP without redirect.
 - Supported handler schemes are `http`, `https`, `ws`, `wss`, and `file`.
+- Handler URLs without an explicit port derive defaults: `http` and `ws` handlers default to port 80; `https` and `wss` handlers default to port 443.
 - For `file://` handlers, the path must be absolute and local.
 - For directory paths, `webd` attempts to serve `index.html` first.
 - If `browse: true` is set on a `file://` route and no `index.html` is present for a requested directory path, `webd` returns an HTML directory listing (subdirs/files, size, modtime).
@@ -133,10 +134,19 @@ Rules:
 - `insecure` is optional and supported only for `https` and `wss` handlers.
 - If `insecure: true` is set, `webctl reload` fetches the endpoint’s current leaf certificate and pins that exact certificate for the route/handler.
 - `insecure: true` does not disable TLS verification; `webd` still checks hostname, certificate validity period, and exact leaf-cert match.
+- For self-signed certificates, `webctl reload` accepts single-cert bundles; multi-certificate bundles must be ordered (leaf, intermediates, root) per X.509 chain standards.
+- When verifying a loopback IP backend (127.0.0.1 or ::1) with TLS, if hostname verification fails, `webd` retries against `localhost`, allowing local backends with `localhost`-signed certificates to function.
 - `insecure` cannot be used with `trusted_ca`.
 - `trusted_ca` cannot be used with `redirect` routes.
 - `trusted_ca.name` may contain only letters, digits, `.`, `_`, and `-`.
 - `trusted_ca.cert_path` must point to a PEM CA bundle that `webctl reload` can read.
+- `rewrite_location` is optional and supported only for proxy handlers (http, https, ws, wss).
+- `rewrite_location.match` is a required regex pattern (forward-slash-delimited, e.g., `/^http:/^https:/`) used to match Location header values.
+- `rewrite_location.replace` is a required replacement string (supports regex backreferences) applied when `match` succeeds.
+- By default, all proxy handler Location headers are rewritten to HTTPS and the frontend request host, overriding backend redirects. Custom `rewrite_location` patterns are applied after this normalization.
+- `rewrite_base_href` is optional (boolean, default `true`) and supported only for proxy handlers.
+- When `rewrite_base_href: true` (default), `webd` injects or updates the HTML `<base href>` tag in the response document `<head>` to match the frontend route path plus handler subpath, ensuring relative links work correctly in proxied content.
+- Set `rewrite_base_href: false` to disable automatic base href rewriting for a specific route.
 - Most specific `path` wins (longest prefix match).
 
 YAML templates (resolved by `webctl reload` before writing runtime JSON):
@@ -349,6 +359,44 @@ routes:
     handler: http://127.0.0.1:3000
 ```
 
+Custom Location header rewriting (regex):
+
+```yaml
+routes:
+  - path: /api/
+    handler: http://api-backend.internal:8080/api/
+    rewrite_location:
+      match: /^(https?:)\/\/[^\/]+(.*)$/$1\/\/api-public.example.com$2/
+      replace: $1//api-public.example.com$2
+
+  - path: /
+    handler: http://127.0.0.1:3000
+```
+
+Disable automatic HTML base href rewriting:
+
+```yaml
+routes:
+  - path: /docs/
+    handler: http://docs.internal:8000/
+    rewrite_base_href: false
+
+  - path: /
+    handler: http://127.0.0.1:3000
+```
+
+Proxy route with loopback backend (TLS with localhost certificate):
+
+```yaml
+routes:
+  - path: /internal-api/
+    handler: https://127.0.0.1:9443/api/
+    insecure: true
+
+  - path: /
+    handler: http://127.0.0.1:3000
+```
+
 Permanent redirect route:
 
 ```yaml
@@ -420,9 +468,15 @@ Runtime behavior highlights:
 - TLS cert/key and routes are reloaded in-process on `SIGHUP`.
 - `webctl reload` resolves handler hostnames and writes runtime config with route `path` plus decomposed `handler` targets including `protocol`, `hostname`, `port`, `path`, and `ipv4_addresses`.
 - `webctl reload` verifies each HTTPS handler against its configured local trusted CA bundle, extracts the validating intermediate/root certificates when possible, and stages them at `/run/webd/ca-<name>.crt`.
+- During reload, if a backend TLS certificate fetch fails, the handler proceeds without the pinned CA (non-fatal), allowing configuration deployment even when backends are temporarily unreachable.
 - `webd` loads only `/run/webd/config.json`, dials the staged IPv4 addresses directly, and does not perform DNS lookups for handler routing.
 - `webd` uses a staged trusted CA bundle to verify an HTTPS handler when that handler declares `trusted_ca`, or when `webctl reload` auto-pins the handler CA chain for handlers without `trusted_ca`.
 - Handler requests include standard proxy headers such as `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port`, `X-Real-IP`, and `Forwarded`.
+- For proxy handlers, `webd` performs automatic response rewriting:
+  - Location headers are normalized to HTTPS + frontend request host (default behavior for all redirects).
+  - Custom `rewrite_location` regex patterns are applied after normalization for multi-backend scenarios.
+  - HTML `<base href>` tags are injected/updated in response documents (enabled by default, can opt-out with `rewrite_base_href: false`) to ensure relative links work with the proxied path.
+- Proxy requests to loopback IP backends use the direct IPv4 address; if TLS hostname verification fails, `webd` retries against `localhost` to support local backends with localhost-signed certificates.
 - `webd` accepts no flags/subcommands; control operations are in `webctl`.
 - `webd` requires effective UID in the 500-999 range.
 - `webd` fails fast if any required runtime file is unreadable.
