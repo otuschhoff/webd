@@ -41,12 +41,12 @@ type Handler struct {
 
 // Route maps a URL path prefix to a decomposed handler definition for runtime usage.
 type Route struct {
-	Path              string      `json:"path"`
-	AllowedIPv4Ranges []IPv4Range `json:"allowed_ipv4_ranges,omitempty"`
-	Browse            bool        `json:"browse,omitempty"`
-	Redirect          string      `json:"redirect,omitempty"`
-	Handler           *Handler    `json:"handler,omitempty"`
-	WebsocketHandler  *Handler    `json:"websocket_handler,omitempty"`
+	Path              string           `json:"path"`
+	AllowedIPv4Ranges []IPv4Range      `json:"allowed_ipv4_ranges,omitempty"`
+	Browse            bool             `json:"browse,omitempty"`
+	Redirect          string           `json:"redirect,omitempty"`
+	Handler           *Handler         `json:"handler,omitempty"`
+	WebsocketHandler  *Handler         `json:"websocket_handler,omitempty"`
 	LocationRewrite   *LocationRewrite `json:"location_rewrite,omitempty"`
 }
 
