@@ -337,6 +337,14 @@ func buildRuntimeConfig(cfg *Config, uid, gid int, stagedCAs map[string]*stagedT
 			return nil, fmt.Errorf("route path=%q allowed_ipv4: %w", route.Path, err)
 		}
 
+		var locationRewrite *server.LocationRewrite
+		if route.LocationRewrite != nil {
+			locationRewrite = &server.LocationRewrite{
+				Match:   route.LocationRewrite.Match,
+				Replace: route.LocationRewrite.Replace,
+			}
+		}
+
 		if strings.TrimSpace(route.Redirect) != "" {
 			resolved.Routes = append(resolved.Routes, server.Route{
 				Path:              route.Path,
@@ -376,6 +384,7 @@ func buildRuntimeConfig(cfg *Config, uid, gid int, stagedCAs map[string]*stagedT
 			Browse:            route.Browse,
 			Handler:           &handler,
 			WebsocketHandler:  wsHandler,
+			LocationRewrite:   locationRewrite,
 		})
 	}
 	return resolved, nil

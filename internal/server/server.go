@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,6 +28,8 @@ type routeProxy struct {
 	redirectTarget    string
 	proxy             *httputil.ReverseProxy
 	websocketProxy    *httputil.ReverseProxy
+	locationRewriteRe *regexp.Regexp
+	locationReplace   string
 	localHandler      http.Handler
 	allowedIPv4Ranges []IPv4Range
 }
@@ -233,6 +236,18 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 		proxy := httputil.NewSingleHostReverseProxy(targetURL)
 		proxy.BufferPool = reverseProxyBufferPool
 		configureRouteProxyDirector(proxy, targetURL, prefix)
+
+		var locationRewriteRe *regexp.Regexp
+		locationReplace := ""
+		if r.LocationRewrite != nil {
+			compiled, compileErr := regexp.Compile(normalizeRegexPattern(r.LocationRewrite.Match))
+			if compileErr != nil {
+				return nil, fmt.Errorf("compile location_rewrite.match for path %q: %w", prefix, compileErr)
+			}
+			locationRewriteRe = compiled
+			locationReplace = r.LocationRewrite.Replace
+			configureLocationHeaderRewrite(proxy, locationRewriteRe, locationReplace)
+		}
 		transport, transportErr := handleProxyTransport(handlerCfg)
 		if transportErr != nil {
 			return nil, fmt.Errorf("configure transport for path %q: %w", prefix, transportErr)
@@ -251,6 +266,9 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			wsProxy = httputil.NewSingleHostReverseProxy(wsTargetURL)
 			wsProxy.BufferPool = reverseProxyBufferPool
 			configureRouteProxyDirector(wsProxy, wsTargetURL, prefix)
+			if locationRewriteRe != nil {
+				configureLocationHeaderRewrite(wsProxy, locationRewriteRe, locationReplace)
+			}
 			wsTransport, wsTransportErr := handleProxyTransport(wsCfg)
 			if wsTransportErr != nil {
 				return nil, fmt.Errorf("configure websocket transport for path %q: %w", prefix, wsTransportErr)
@@ -262,7 +280,14 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			}
 		}
 
-		routes = append(routes, routeProxy{prefix: prefix, proxy: proxy, websocketProxy: wsProxy, allowedIPv4Ranges: append([]IPv4Range(nil), r.AllowedIPv4Ranges...)})
+		routes = append(routes, routeProxy{
+			prefix:            prefix,
+			proxy:             proxy,
+			websocketProxy:    wsProxy,
+			locationRewriteRe: locationRewriteRe,
+			locationReplace:   locationReplace,
+			allowedIPv4Ranges: append([]IPv4Range(nil), r.AllowedIPv4Ranges...),
+		})
 	}
 
 	sort.Slice(routes, func(i, j int) bool {
@@ -414,6 +439,23 @@ func joinProxyPath(base, suffix string) string {
 		return base + "/" + suffix
 	}
 	return base + suffix
+}
+
+func configureLocationHeaderRewrite(proxy *httputil.ReverseProxy, matchRe *regexp.Regexp, replace string) {
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		if matchRe == nil || resp == nil {
+			return nil
+		}
+		location := resp.Header.Get("Location")
+		if location == "" {
+			return nil
+		}
+		rewritten := matchRe.ReplaceAllString(location, replace)
+		if rewritten != location {
+			resp.Header.Set("Location", rewritten)
+		}
+		return nil
+	}
 }
 
 func loadTrustedCertPool(certPath string) (*x509.CertPool, error) {

@@ -36,6 +36,20 @@ const sourceConfigSchemaJSON = `{
               {"type": "boolean", "enum": [false]}
             ]
           },
+          "location_rewrite": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["match", "replace"],
+            "properties": {
+              "match": {
+                "type": "string",
+                "minLength": 1
+              },
+              "replace": {
+                "type": "string"
+              }
+            }
+          },
           "redirect": {
             "type": "string",
             "pattern": "^[A-Za-z][A-Za-z0-9+.-]*://.+"
@@ -209,6 +223,20 @@ const runtimeConfigSchemaJSON = `{
               }
             },
             "required": ["protocol", "hostname", "port", "ipv4_addresses"]
+          },
+          "location_rewrite": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["match", "replace"],
+            "properties": {
+              "match": {
+                "type": "string",
+                "minLength": 1
+              },
+              "replace": {
+                "type": "string"
+              }
+            }
           },
           "handler": {
             "type": "object",

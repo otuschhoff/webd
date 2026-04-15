@@ -21,6 +21,11 @@ type TrustedCA struct {
 	CertPath string `yaml:"cert_path" json:"cert_path"`
 }
 
+type LocationRewrite struct {
+	Match   string `yaml:"match" json:"match"`
+	Replace string `yaml:"replace" json:"replace"`
+}
+
 type Templates struct {
 	IPv4    map[string][]string `yaml:"ipv4,omitempty" json:"ipv4,omitempty"`
 	Handler map[string]string   `yaml:"handler,omitempty" json:"handler,omitempty"`
@@ -103,6 +108,8 @@ type Route struct {
 	// false: disable WebSocket upgrade detection entirely for this route.
 	// A URL string: override the WebSocket backend (e.g. different port).
 	Websocket *WebsocketValue `yaml:"websocket,omitempty" json:"-"`
+	// LocationRewrite rewrites upstream Location response header values using a regex.
+	LocationRewrite *LocationRewrite `yaml:"location_rewrite,omitempty" json:"location_rewrite,omitempty"`
 	// Browse enables directory listing when a file:// handler maps to a directory path.
 	Browse bool `yaml:"browse,omitempty" json:"browse,omitempty"`
 	// Insecure enables endpoint certificate pinning for https/wss handlers.
@@ -665,6 +672,22 @@ func Validate(cfg *Config) error {
 			return fmt.Errorf("browse is supported only for file handlers for path %q", prefix)
 		}
 
+		if r.LocationRewrite != nil {
+			if hasRedirect {
+				return fmt.Errorf("location_rewrite cannot be used with redirect for path %q", prefix)
+			}
+			if scheme == "file" {
+				return fmt.Errorf("location_rewrite is not supported for file handlers for path %q", prefix)
+			}
+			match := strings.TrimSpace(r.LocationRewrite.Match)
+			if match == "" {
+				return fmt.Errorf("location_rewrite.match is required for path %q", prefix)
+			}
+			if _, err := regexp.Compile(normalizeRegexPattern(match)); err != nil {
+				return fmt.Errorf("invalid location_rewrite.match regex for path %q: %w", prefix, err)
+			}
+		}
+
 		if r.Websocket != nil && !r.Websocket.disabled && r.Websocket.url != "" {
 			if !hasHandler {
 				return fmt.Errorf("websocket requires handler for path %q", prefix)
@@ -726,6 +749,14 @@ func validateAllowedIPv4Entry(raw string) error {
 		return fmt.Errorf("invalid IPv4 address %q", value)
 	}
 	return nil
+}
+
+func normalizeRegexPattern(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if len(trimmed) >= 2 && strings.HasPrefix(trimmed, "/") && strings.HasSuffix(trimmed, "/") {
+		return trimmed[1 : len(trimmed)-1]
+	}
+	return trimmed
 }
 
 func parseIPv4Address(raw string) (netip.Addr, error) {

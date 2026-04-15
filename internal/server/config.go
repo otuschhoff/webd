@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"webd/internal/app"
@@ -21,6 +22,11 @@ type TrustedCA struct {
 	Name    string `json:"name"`
 	File    string `json:"file"`
 	PinCert bool   `json:"pin_cert,omitempty"`
+}
+
+type LocationRewrite struct {
+	Match   string `json:"match"`
+	Replace string `json:"replace"`
 }
 
 type Handler struct {
@@ -41,6 +47,7 @@ type Route struct {
 	Redirect          string      `json:"redirect,omitempty"`
 	Handler           *Handler    `json:"handler,omitempty"`
 	WebsocketHandler  *Handler    `json:"websocket_handler,omitempty"`
+	LocationRewrite   *LocationRewrite `json:"location_rewrite,omitempty"`
 }
 
 // Config is the runtime JSON configuration consumed by the webd daemon.
@@ -112,6 +119,9 @@ func Validate(cfg *Config) error {
 			if r.Browse {
 				return fmt.Errorf("browse cannot be used with redirect for path %q", prefix)
 			}
+			if r.LocationRewrite != nil {
+				return fmt.Errorf("location_rewrite cannot be used with redirect for path %q", prefix)
+			}
 			continue
 		}
 
@@ -136,6 +146,9 @@ func Validate(cfg *Config) error {
 			}
 			if handler.TrustedCA != nil {
 				return fmt.Errorf("trusted_ca is not supported for file handlers for path %q", prefix)
+			}
+			if r.LocationRewrite != nil {
+				return fmt.Errorf("location_rewrite is not supported for file handlers for path %q", prefix)
 			}
 			continue
 		}
@@ -171,6 +184,16 @@ func Validate(cfg *Config) error {
 			}
 		}
 
+		if r.LocationRewrite != nil {
+			match := strings.TrimSpace(r.LocationRewrite.Match)
+			if match == "" {
+				return fmt.Errorf("location_rewrite.match is required for path %q", prefix)
+			}
+			if _, err := regexp.Compile(normalizeRegexPattern(match)); err != nil {
+				return fmt.Errorf("invalid location_rewrite.match regex for path %q: %w", prefix, err)
+			}
+		}
+
 		if r.WebsocketHandler != nil {
 			wsh := r.WebsocketHandler
 			wsProtocol := strings.ToLower(strings.TrimSpace(wsh.Protocol))
@@ -203,4 +226,12 @@ func Validate(cfg *Config) error {
 		}
 	}
 	return nil
+}
+
+func normalizeRegexPattern(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if len(trimmed) >= 2 && strings.HasPrefix(trimmed, "/") && strings.HasSuffix(trimmed, "/") {
+		return trimmed[1 : len(trimmed)-1]
+	}
+	return trimmed
 }
