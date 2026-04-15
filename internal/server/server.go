@@ -232,11 +232,7 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 
 		proxy := httputil.NewSingleHostReverseProxy(targetURL)
 		proxy.BufferPool = reverseProxyBufferPool
-		originalDirector := proxy.Director
-		proxy.Director = func(req *http.Request) {
-			originalDirector(req)
-			handleProxyForwardedHeaders(req)
-		}
+		configureRouteProxyDirector(proxy, targetURL, prefix)
 		transport, transportErr := handleProxyTransport(handlerCfg)
 		if transportErr != nil {
 			return nil, fmt.Errorf("configure transport for path %q: %w", prefix, transportErr)
@@ -254,11 +250,7 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			wsTarget := wsTargetURL.String()
 			wsProxy = httputil.NewSingleHostReverseProxy(wsTargetURL)
 			wsProxy.BufferPool = reverseProxyBufferPool
-			wsOrigDir := wsProxy.Director
-			wsProxy.Director = func(req *http.Request) {
-				wsOrigDir(req)
-				handleProxyForwardedHeaders(req)
-			}
+			configureRouteProxyDirector(wsProxy, wsTargetURL, prefix)
 			wsTransport, wsTransportErr := handleProxyTransport(wsCfg)
 			if wsTransportErr != nil {
 				return nil, fmt.Errorf("configure websocket transport for path %q: %w", prefix, wsTransportErr)
@@ -349,6 +341,79 @@ func usesTLSHandler(protocol string) bool {
 	default:
 		return false
 	}
+}
+
+func configureRouteProxyDirector(proxy *httputil.ReverseProxy, target *url.URL, routePrefix string) {
+	targetQuery := target.RawQuery
+	proxy.Director = func(req *http.Request) {
+		trimmedPath, trimmedRawPath := trimRoutePrefix(req.URL.Path, req.URL.RawPath, routePrefix)
+
+		req.URL.Scheme = target.Scheme
+		req.URL.Host = target.Host
+		req.URL.Path = joinProxyPath(target.Path, trimmedPath)
+		req.URL.RawPath = joinProxyPath(target.RawPath, trimmedRawPath)
+
+		switch {
+		case targetQuery == "":
+			// keep request query as-is
+		case req.URL.RawQuery == "":
+			req.URL.RawQuery = targetQuery
+		default:
+			req.URL.RawQuery = targetQuery + "&" + req.URL.RawQuery
+		}
+
+		if _, ok := req.Header["User-Agent"]; !ok {
+			req.Header.Set("User-Agent", "")
+		}
+		handleProxyForwardedHeaders(req)
+	}
+}
+
+func trimRoutePrefix(path, rawPath, routePrefix string) (string, string) {
+	prefix := strings.TrimSpace(routePrefix)
+	if prefix == "" || prefix == "/" {
+		return path, rawPath
+	}
+	prefix = strings.TrimRight(prefix, "/")
+
+	trimmedPath := path
+	if path == prefix {
+		trimmedPath = ""
+	} else if strings.HasPrefix(path, prefix+"/") {
+		trimmedPath = path[len(prefix):]
+	}
+
+	trimmedRawPath := rawPath
+	if rawPath != "" {
+		if rawPath == prefix {
+			trimmedRawPath = ""
+		} else if strings.HasPrefix(rawPath, prefix+"/") {
+			trimmedRawPath = rawPath[len(prefix):]
+		}
+	}
+
+	return trimmedPath, trimmedRawPath
+}
+
+func joinProxyPath(base, suffix string) string {
+	if suffix == "" {
+		if base == "" {
+			return "/"
+		}
+		return base
+	}
+	if base == "" {
+		return suffix
+	}
+	aslash := strings.HasSuffix(base, "/")
+	bslash := strings.HasPrefix(suffix, "/")
+	switch {
+	case aslash && bslash:
+		return base + suffix[1:]
+	case !aslash && !bslash:
+		return base + "/" + suffix
+	}
+	return base + suffix
 }
 
 func loadTrustedCertPool(certPath string) (*x509.CertPool, error) {
