@@ -9,6 +9,21 @@ import (
 // VerifyCertificateHostname accepts normal SAN-based matches and falls back to
 // legacy Common Name matching only when the certificate has no SANs at all.
 func VerifyCertificateHostname(cert *x509.Certificate, hostname string) error {
+	if err := verifyHostnameWithLegacyCN(cert, hostname); err == nil {
+		return nil
+	} else {
+		// Allow loopback backends addressed by IP to validate against localhost
+		// certs (common for local-only services and dev setups).
+		if isLoopbackIPHostname(hostname) {
+			if fallbackErr := verifyHostnameWithLegacyCN(cert, "localhost"); fallbackErr == nil {
+				return nil
+			}
+		}
+		return err
+	}
+}
+
+func verifyHostnameWithLegacyCN(cert *x509.Certificate, hostname string) error {
 	if err := cert.VerifyHostname(hostname); err == nil {
 		return nil
 	} else if certificateHasSANs(cert) {
@@ -23,6 +38,11 @@ func VerifyCertificateHostname(cert *x509.Certificate, hostname string) error {
 		return cert.VerifyHostname(hostname)
 	}
 	return nil
+}
+
+func isLoopbackIPHostname(hostname string) bool {
+	ip := net.ParseIP(strings.TrimSpace(hostname))
+	return ip != nil && ip.IsLoopback()
 }
 
 func certificateHasSANs(cert *x509.Certificate) bool {
