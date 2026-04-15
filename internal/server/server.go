@@ -246,8 +246,8 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			}
 			locationRewriteRe = compiled
 			locationReplace = r.LocationRewrite.Replace
-			configureLocationHeaderRewrite(proxy, locationRewriteRe, locationReplace)
 		}
+		configureLocationHeaderRewrite(proxy, locationRewriteRe, locationReplace)
 		transport, transportErr := handleProxyTransport(handlerCfg)
 		if transportErr != nil {
 			return nil, fmt.Errorf("configure transport for path %q: %w", prefix, transportErr)
@@ -266,9 +266,7 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			wsProxy = httputil.NewSingleHostReverseProxy(wsTargetURL)
 			wsProxy.BufferPool = reverseProxyBufferPool
 			configureRouteProxyDirector(wsProxy, wsTargetURL, prefix)
-			if locationRewriteRe != nil {
-				configureLocationHeaderRewrite(wsProxy, locationRewriteRe, locationReplace)
-			}
+			configureLocationHeaderRewrite(wsProxy, locationRewriteRe, locationReplace)
 			wsTransport, wsTransportErr := handleProxyTransport(wsCfg)
 			if wsTransportErr != nil {
 				return nil, fmt.Errorf("configure websocket transport for path %q: %w", prefix, wsTransportErr)
@@ -443,19 +441,56 @@ func joinProxyPath(base, suffix string) string {
 
 func configureLocationHeaderRewrite(proxy *httputil.ReverseProxy, matchRe *regexp.Regexp, replace string) {
 	proxy.ModifyResponse = func(resp *http.Response) error {
-		if matchRe == nil || resp == nil {
+		if resp == nil {
 			return nil
 		}
 		location := resp.Header.Get("Location")
 		if location == "" {
 			return nil
 		}
-		rewritten := matchRe.ReplaceAllString(location, replace)
+		rewritten := rewriteLocationToRequestHTTPS(location, resp.Request)
+		if matchRe != nil {
+			rewritten = matchRe.ReplaceAllString(rewritten, replace)
+		}
 		if rewritten != location {
 			resp.Header.Set("Location", rewritten)
 		}
 		return nil
 	}
+}
+
+func rewriteLocationToRequestHTTPS(location string, req *http.Request) string {
+	if req == nil {
+		return location
+	}
+	parsed, err := url.Parse(location)
+	if err != nil {
+		return location
+	}
+	if parsed.Host == "" && parsed.Scheme == "" && !strings.HasPrefix(location, "//") {
+		return location
+	}
+
+	requestHost := requestFQDN(req.Host)
+	if requestHost == "" {
+		return location
+	}
+
+	parsed.Scheme = "https"
+	parsed.Host = requestHost
+	return parsed.String()
+}
+
+func requestFQDN(host string) string {
+	hostname, _ := splitRequestHostPort(host)
+	if hostname != "" {
+		return hostname
+	}
+	trimmed := strings.TrimSpace(host)
+	if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+		return strings.Trim(trimmed, "[]")
+	}
+	return trimmed
 }
 
 func loadTrustedCertPool(certPath string) (*x509.CertPool, error) {
