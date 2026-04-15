@@ -277,16 +277,28 @@ func runLetsEncryptTimerRun(configPath string) error {
 		return fmt.Errorf("parse renew-before %q: %w", cfg.RenewBefore, err)
 	}
 
-	notAfter, err := readLeafCertificateNotAfter(cfg.LetsEncrypt.CertPath)
+	host := strings.TrimSpace(cfg.LetsEncrypt.Host)
+	if host == "" {
+		host, err = localFQDN()
+		if err != nil {
+			return fmt.Errorf("resolve local fqdn: %w", err)
+		}
+	}
+	checkCertPath := strings.TrimSpace(cfg.LetsEncrypt.CertPath)
+	if checkCertPath == "" {
+		checkCertPath = defaultLetsEncryptActiveCertPath(host)
+	}
+
+	notAfter, err := readLeafCertificateNotAfter(checkCertPath)
 	if err == nil {
 		remaining := time.Until(notAfter)
 		if remaining > threshold {
-			fmt.Printf("certificate at %s is valid until %s (%s remaining); threshold %s not reached\n", cfg.LetsEncrypt.CertPath, notAfter.UTC().Format(time.RFC3339), remaining.Round(time.Second), threshold.Round(time.Second))
+			fmt.Printf("certificate at %s is valid until %s (%s remaining); threshold %s not reached\n", checkCertPath, notAfter.UTC().Format(time.RFC3339), remaining.Round(time.Second), threshold.Round(time.Second))
 			return nil
 		}
-		fmt.Printf("certificate at %s expires at %s (%s remaining), threshold is %s; requesting renewal\n", cfg.LetsEncrypt.CertPath, notAfter.UTC().Format(time.RFC3339), remaining.Round(time.Second), threshold.Round(time.Second))
+		fmt.Printf("certificate at %s expires at %s (%s remaining), threshold is %s; requesting renewal\n", checkCertPath, notAfter.UTC().Format(time.RFC3339), remaining.Round(time.Second), threshold.Round(time.Second))
 	} else {
-		fmt.Printf("could not read existing certificate at %s (%v); requesting renewal\n", cfg.LetsEncrypt.CertPath, err)
+		fmt.Printf("could not read existing certificate at %s (%v); requesting renewal\n", checkCertPath, err)
 	}
 
 	opts := LetsEncryptOptions{
@@ -373,12 +385,6 @@ func loadLetsEncryptTimerConfig(path string) (letsEncryptTimerConfig, error) {
 	}
 	if strings.TrimSpace(cfg.LetsEncrypt.ChallengeDir) == "" {
 		cfg.LetsEncrypt.ChallengeDir = defaultLetsEncryptOptions().ChallengeDir
-	}
-	if strings.TrimSpace(cfg.LetsEncrypt.CertPath) == "" {
-		cfg.LetsEncrypt.CertPath = defaultLetsEncryptOptions().CertPath
-	}
-	if strings.TrimSpace(cfg.LetsEncrypt.KeyPath) == "" {
-		cfg.LetsEncrypt.KeyPath = defaultLetsEncryptOptions().KeyPath
 	}
 	if strings.TrimSpace(cfg.LetsEncrypt.Reload.ConfigSource) == "" {
 		cfg.LetsEncrypt.Reload = defaultLetsEncryptOptions().Reload
@@ -510,4 +516,12 @@ func displayValue(value, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+func defaultLetsEncryptActiveCertPath(host string) string {
+	fqdn := strings.TrimSuffix(strings.TrimSpace(host), ".")
+	if fqdn == "" {
+		return "/etc/pki/tls/certs/self.crt"
+	}
+	return filepath.Join("/etc/pki/tls/certs", fqdn+".crt")
 }

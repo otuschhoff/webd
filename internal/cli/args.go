@@ -150,13 +150,21 @@ func ExecuteControl() error {
 		SilenceErrors: true,
 		GroupID:       "ops",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			letsEncryptOpts.Reload.HTTPAddr = runOpts.HTTPAddr
-			letsEncryptOpts.Reload.HTTPSAddr = runOpts.HTTPSAddr
-			letsEncryptOpts.Reload.RunUser = reloadOpts.RunUser
-			letsEncryptOpts.Reload.ConfigSource = runOpts.ConfigPath
-			letsEncryptOpts.Reload.TLSCertDest = runOpts.TLSCertPath
-			letsEncryptOpts.Reload.TLSKeyDest = runOpts.TLSKeyPath
-			return RunLetsEncrypt(letsEncryptOpts)
+			runOptsCopy := letsEncryptOpts
+			if !cmd.Flags().Changed("cert-path") {
+				runOptsCopy.CertPath = ""
+			}
+			if !cmd.Flags().Changed("key-path") {
+				runOptsCopy.KeyPath = ""
+			}
+
+			runOptsCopy.Reload.HTTPAddr = runOpts.HTTPAddr
+			runOptsCopy.Reload.HTTPSAddr = runOpts.HTTPSAddr
+			runOptsCopy.Reload.RunUser = reloadOpts.RunUser
+			runOptsCopy.Reload.ConfigSource = runOpts.ConfigPath
+			runOptsCopy.Reload.TLSCertDest = runOpts.TLSCertPath
+			runOptsCopy.Reload.TLSKeyDest = runOpts.TLSKeyPath
+			return RunLetsEncrypt(runOptsCopy)
 		},
 	}
 	letsEncryptCmd.Flags().StringVar(&letsEncryptOpts.Host, "host", letsEncryptOpts.Host, "DNS host name to request (defaults to local FQDN)")
@@ -192,7 +200,6 @@ func ExecuteControl() error {
 			return runLetsEncryptTimerAdd(letsEncryptTimerOpts)
 		},
 	}
-
 	letsEncryptTimerListCmd := &cobra.Command{
 		Use:           "list",
 		Short:         "Show Let's Encrypt renewal timer configuration and state",

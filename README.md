@@ -442,6 +442,18 @@ How it works:
 - `webctl` stages HTTP-01 token files under `/run/webd/acme-challenge/`.
 - `webd` serves `/.well-known/acme-challenge/<token>` directly from its chroot jail path `/acme-challenge/<token>`.
 - After issuance, `webctl` writes the certificate chain PEM and key to local filesystem paths.
+- If `--cert-path` and `--key-path` are both omitted, `webctl` stores cert/key in date-versioned FQDN paths:
+  - cert: `/etc/pki/tls/certs/<FQDN>/<YYYY-MM-DD>/<FQDN>.crt`
+  - key: `/etc/pki/tls/private/<FQDN>/<YYYY-MM-DD>/<FQDN>.key`
+- In the default path mode, `webctl` also maintains symlinks for stable access and compatibility:
+  - `/etc/pki/tls/{certs,private}/<FQDN>/current -> <YYYY-MM-DD>`
+  - `/etc/pki/tls/{certs,private}/self -> <FQDN>`
+  - `/etc/pki/tls/certs/self.crt -> self/current/<FQDN>.crt`
+  - `/etc/pki/tls/private/self.key -> self/current/<FQDN>.key`
+  - `/etc/pki/tls/certs/<FQDN>.crt -> self.crt`
+  - `/etc/pki/tls/private/<FQDN>.key -> self.key`
+  - `/etc/pki/tls/certs/<SHORTNAME>.crt -> self.crt`
+  - `/etc/pki/tls/private/<SHORTNAME>.key -> self.key`
 - By default, `webctl` immediately deploys the new cert/key to `webd` through the existing reload workflow.
 
 Examples:

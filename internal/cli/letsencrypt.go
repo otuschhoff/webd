@@ -40,8 +40,8 @@ func defaultLetsEncryptOptions() LetsEncryptOptions {
 		Email:        "",
 		DirectoryURL: acme.LetsEncryptURL,
 		ChallengeDir: filepath.Join(DefaultRuntimeTLSDir, "acme-challenge"),
-		CertPath:     DefaultTLSSourceCertPath,
-		KeyPath:      DefaultTLSSourceKeyPath,
+		CertPath:     "",
+		KeyPath:      "",
 		Deploy:       true,
 		Reload:       reload,
 	}
@@ -77,6 +77,18 @@ func RunLetsEncrypt(opts LetsEncryptOptions) error {
 	}
 	if strings.ContainsAny(host, " /\\") {
 		return fmt.Errorf("host contains invalid characters: %q", host)
+	}
+
+	now := time.Now().UTC()
+	certPath, keyPath, useDefaultLayout, err := resolveLetsEncryptOutputPaths(host, opts.CertPath, opts.KeyPath, now)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(certPath), 0o755); err != nil {
+		return fmt.Errorf("create cert output dir for %s: %w", certPath, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(keyPath), 0o700); err != nil {
+		return fmt.Errorf("create key output dir for %s: %w", keyPath, err)
 	}
 
 	runUID, runGID, err := lookupRunUser(opts.Reload.RunUser)
@@ -203,21 +215,27 @@ func RunLetsEncrypt(opts LetsEncryptOptions) error {
 	}
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
 
-	if _, err := writeFileAtomic(opts.CertPath, certPEM, 0o644); err != nil {
-		return fmt.Errorf("write cert chain to %s: %w", opts.CertPath, err)
+	if _, err := writeFileAtomic(certPath, certPEM, 0o644); err != nil {
+		return fmt.Errorf("write cert chain to %s: %w", certPath, err)
 	}
-	if _, err := writeFileAtomic(opts.KeyPath, keyPEM, 0o600); err != nil {
-		return fmt.Errorf("write private key to %s: %w", opts.KeyPath, err)
+	if _, err := writeFileAtomic(keyPath, keyPEM, 0o600); err != nil {
+		return fmt.Errorf("write private key to %s: %w", keyPath, err)
 	}
-	opsLog.Printf("saved letsencrypt certificate host=%q cert=%q key=%q", host, opts.CertPath, opts.KeyPath)
+
+	if useDefaultLayout {
+		if err := ensureLetsEncryptDefaultSymlinks(host, now); err != nil {
+			return err
+		}
+	}
+	opsLog.Printf("saved letsencrypt certificate host=%q cert=%q key=%q", host, certPath, keyPath)
 
 	if !opts.Deploy {
 		return nil
 	}
 
 	reload := opts.Reload
-	reload.TLSCertSource = opts.CertPath
-	reload.TLSKeySource = opts.KeyPath
+	reload.TLSCertSource = certPath
+	reload.TLSKeySource = keyPath
 	if err := Run(reload); err != nil {
 		errLog.Printf("letsencrypt deploy failed host=%q err=%v", host, err)
 		return fmt.Errorf("deploy certificate to running webd: %w", err)
@@ -278,4 +296,114 @@ func defaultACMEEmailForHost(host string) string {
 		return ""
 	}
 	return "it@" + domain
+}
+
+func resolveLetsEncryptOutputPaths(host, certPath, keyPath string, now time.Time) (string, string, bool, error) {
+	trimmedCert := strings.TrimSpace(certPath)
+	trimmedKey := strings.TrimSpace(keyPath)
+
+	if trimmedCert != "" && trimmedKey != "" {
+		return trimmedCert, trimmedKey, false, nil
+	}
+	if trimmedCert == "" && trimmedKey == "" {
+		fqdn := strings.TrimSuffix(strings.TrimSpace(host), ".")
+		if fqdn == "" {
+			return "", "", false, fmt.Errorf("resolve default cert/key paths: host is empty")
+		}
+		dateDir := now.Format("2006-01-02")
+		cert := filepath.Join("/etc/pki/tls/certs", fqdn, dateDir, fqdn+".crt")
+		key := filepath.Join("/etc/pki/tls/private", fqdn, dateDir, fqdn+".key")
+		return cert, key, true, nil
+	}
+
+	if trimmedCert == "" {
+		return "", "", false, fmt.Errorf("--cert-path must be provided when --key-path is set")
+	}
+	return "", "", false, fmt.Errorf("--key-path must be provided when --cert-path is set")
+}
+
+func ensureLetsEncryptDefaultSymlinks(host string, now time.Time) error {
+	fqdn := strings.TrimSuffix(strings.TrimSpace(host), ".")
+	if fqdn == "" {
+		return fmt.Errorf("create default letsencrypt symlinks: host is empty")
+	}
+	short := fqdn
+	if i := strings.IndexByte(fqdn, '.'); i > 0 {
+		short = fqdn[:i]
+	}
+	dateDir := now.Format("2006-01-02")
+
+	certsBase := "/etc/pki/tls/certs"
+	keysBase := "/etc/pki/tls/private"
+
+	if err := os.MkdirAll(filepath.Join(certsBase, fqdn, dateDir), 0o755); err != nil {
+		return fmt.Errorf("create cert dated dir: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Join(keysBase, fqdn, dateDir), 0o700); err != nil {
+		return fmt.Errorf("create key dated dir: %w", err)
+	}
+
+	if err := ensureSymlink(filepath.Join(certsBase, fqdn, "current"), dateDir); err != nil {
+		return err
+	}
+	if err := ensureSymlink(filepath.Join(keysBase, fqdn, "current"), dateDir); err != nil {
+		return err
+	}
+
+	if err := ensureSymlink(filepath.Join(certsBase, "self"), fqdn); err != nil {
+		return err
+	}
+	if err := ensureSymlink(filepath.Join(keysBase, "self"), fqdn); err != nil {
+		return err
+	}
+
+	if err := ensureSymlink(filepath.Join(certsBase, "self.crt"), filepath.Join("self", "current", fqdn+".crt")); err != nil {
+		return err
+	}
+	if err := ensureSymlink(filepath.Join(keysBase, "self.key"), filepath.Join("self", "current", fqdn+".key")); err != nil {
+		return err
+	}
+
+	if err := ensureSymlink(filepath.Join(certsBase, fqdn+".crt"), "self.crt"); err != nil {
+		return err
+	}
+	if err := ensureSymlink(filepath.Join(keysBase, fqdn+".key"), "self.key"); err != nil {
+		return err
+	}
+
+	if err := ensureSymlink(filepath.Join(certsBase, short+".crt"), "self.crt"); err != nil {
+		return err
+	}
+	if err := ensureSymlink(filepath.Join(keysBase, short+".key"), "self.key"); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func ensureSymlink(path, target string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create symlink directory for %s: %w", path, err)
+	}
+	info, err := os.Lstat(path)
+	if err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			existingTarget, readErr := os.Readlink(path)
+			if readErr == nil && existingTarget == target {
+				return nil
+			}
+			if removeErr := os.Remove(path); removeErr != nil {
+				return fmt.Errorf("replace symlink %s: %w", path, removeErr)
+			}
+		} else {
+			return fmt.Errorf("cannot replace non-symlink path %s", path)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("lstat %s: %w", path, err)
+	}
+
+	if err := os.Symlink(target, path); err != nil {
+		return fmt.Errorf("create symlink %s -> %s: %w", path, target, err)
+	}
+	return nil
 }
