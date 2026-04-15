@@ -18,6 +18,7 @@ func ExecuteControl() error {
 	setupOpts := DefaultSetupOptions()
 	reloadOpts := DefaultOptions()
 	letsEncryptOpts := defaultLetsEncryptOptions()
+	letsEncryptTimerOpts := defaultLetsEncryptTimerOptions()
 
 	rootCmd := &cobra.Command{
 		Use:   "webctl",
@@ -166,7 +167,99 @@ func ExecuteControl() error {
 	letsEncryptCmd.Flags().StringVar(&letsEncryptOpts.KeyPath, "key-path", letsEncryptOpts.KeyPath, "Path to save private key PEM")
 	letsEncryptCmd.Flags().BoolVar(&letsEncryptOpts.Deploy, "deploy", letsEncryptOpts.Deploy, "Deploy to running webd after issuance")
 
-	rootCmd.AddCommand(versionCmd, reloadCmd, reloadTimerCmd, checkCmd, setupCmd, letsEncryptCmd)
+	bindLetsEncryptRunOpts := func(target *LetsEncryptOptions) {
+		target.Reload.HTTPAddr = runOpts.HTTPAddr
+		target.Reload.HTTPSAddr = runOpts.HTTPSAddr
+		target.Reload.RunUser = reloadOpts.RunUser
+		target.Reload.ConfigSource = runOpts.ConfigPath
+		target.Reload.TLSCertDest = runOpts.TLSCertPath
+		target.Reload.TLSKeyDest = runOpts.TLSKeyPath
+	}
+
+	letsEncryptTimerCmd := &cobra.Command{
+		Use:     "letsencrypt-timer",
+		Short:   "Manage periodic Let's Encrypt renewal checks",
+		GroupID: "ops",
+	}
+
+	letsEncryptTimerAddCmd := &cobra.Command{
+		Use:           "add",
+		Short:         "Install and enable Let's Encrypt renewal timer",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			bindLetsEncryptRunOpts(&letsEncryptTimerOpts.LetsEncrypt)
+			return runLetsEncryptTimerAdd(letsEncryptTimerOpts)
+		},
+	}
+
+	letsEncryptTimerListCmd := &cobra.Command{
+		Use:           "list",
+		Short:         "Show Let's Encrypt renewal timer configuration and state",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runLetsEncryptTimerList()
+		},
+	}
+
+	letsEncryptTimerModifyCmd := &cobra.Command{
+		Use:           "modify",
+		Short:         "Modify Let's Encrypt renewal timer settings",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			bindLetsEncryptRunOpts(&letsEncryptTimerOpts.LetsEncrypt)
+			return runLetsEncryptTimerModify(letsEncryptTimerOpts)
+		},
+	}
+
+	letsEncryptTimerDeleteCmd := &cobra.Command{
+		Use:           "delete",
+		Short:         "Disable and remove Let's Encrypt renewal timer",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runLetsEncryptTimerDelete()
+		},
+	}
+
+	letsEncryptTimerRunCmd := &cobra.Command{
+		Use:           "run",
+		Short:         "Run one Let's Encrypt renewal check cycle",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		Hidden:        true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runLetsEncryptTimerRun(letsEncryptTimerOpts.ConfigFile)
+		},
+	}
+
+	bindLetsEncryptTimerFlags := func(cmd *cobra.Command) {
+		cmd.Flags().StringVarP(&letsEncryptTimerOpts.Interval, "interval", "i", letsEncryptTimerOpts.Interval, "Timer interval (e.g. 1d, 1w, 2m)")
+		cmd.Flags().StringVar(&letsEncryptTimerOpts.RenewBefore, "renew-before", letsEncryptTimerOpts.RenewBefore, "Renew certificate when remaining validity is at or below this duration (e.g. 10d)")
+		cmd.Flags().StringVar(&letsEncryptTimerOpts.LetsEncrypt.Host, "host", letsEncryptTimerOpts.LetsEncrypt.Host, "DNS host name to request (defaults to local FQDN)")
+		cmd.Flags().StringVar(&letsEncryptTimerOpts.LetsEncrypt.Email, "email", letsEncryptTimerOpts.LetsEncrypt.Email, "Contact email for ACME account (defaults to it@<domain-of-host>)")
+		cmd.Flags().StringVar(&letsEncryptTimerOpts.LetsEncrypt.DirectoryURL, "directory-url", letsEncryptTimerOpts.LetsEncrypt.DirectoryURL, "ACME directory URL")
+		cmd.Flags().StringVar(&letsEncryptTimerOpts.LetsEncrypt.ChallengeDir, "challenge-dir", letsEncryptTimerOpts.LetsEncrypt.ChallengeDir, "Directory where webd serves ACME HTTP-01 challenge files")
+		cmd.Flags().StringVar(&letsEncryptTimerOpts.LetsEncrypt.CertPath, "cert-path", letsEncryptTimerOpts.LetsEncrypt.CertPath, "Path to save certificate chain PEM")
+		cmd.Flags().StringVar(&letsEncryptTimerOpts.LetsEncrypt.KeyPath, "key-path", letsEncryptTimerOpts.LetsEncrypt.KeyPath, "Path to save private key PEM")
+		cmd.Flags().BoolVar(&letsEncryptTimerOpts.LetsEncrypt.Deploy, "deploy", letsEncryptTimerOpts.LetsEncrypt.Deploy, "Deploy to running webd after issuance")
+	}
+
+	bindLetsEncryptTimerFlags(letsEncryptTimerAddCmd)
+	bindLetsEncryptTimerFlags(letsEncryptTimerModifyCmd)
+	letsEncryptTimerRunCmd.Flags().StringVar(&letsEncryptTimerOpts.ConfigFile, "config-file", letsEncryptTimerOpts.ConfigFile, "Path to letsencrypt-timer runtime config file")
+
+	letsEncryptTimerCmd.AddCommand(
+		letsEncryptTimerAddCmd,
+		letsEncryptTimerListCmd,
+		letsEncryptTimerModifyCmd,
+		letsEncryptTimerDeleteCmd,
+		letsEncryptTimerRunCmd,
+	)
+
+	rootCmd.AddCommand(versionCmd, reloadCmd, reloadTimerCmd, checkCmd, setupCmd, letsEncryptCmd, letsEncryptTimerCmd)
 	return rootCmd.Execute()
 }
 

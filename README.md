@@ -7,7 +7,7 @@
 - Support zero-downtime reload of TLS cert/key and route config via `SIGHUP`.
 - Split binaries by responsibility:
   - `webd` for the HTTP(S) data-plane server.
-  - `webctl` for control-plane operations (`reload`, `check`, `setup`, `letsencrypt`).
+  - `webctl` for control-plane operations (`reload`, `reload-timer`, `check`, `setup`, `letsencrypt`, `letsencrypt-timer`).
 
 ## Usage
 
@@ -79,6 +79,18 @@ Request and deploy a Let's Encrypt certificate (root required):
 ```sh
 sudo ./bin/webctl letsencrypt --host example.com --email admin@example.com
 ```
+
+Manage automated Let's Encrypt renewal checks (root required for add/modify/delete):
+
+```sh
+sudo ./bin/webctl letsencrypt-timer add --host example.com --email admin@example.com
+./bin/webctl letsencrypt-timer list
+sudo ./bin/webctl letsencrypt-timer modify --interval 1w --renew-before 14d
+sudo ./bin/webctl letsencrypt-timer delete
+```
+
+The timer name is `webd-letsencrypt-renew.timer` and it runs a periodic certificate-validity check.
+If the remaining validity is at or below the configured threshold, it triggers `webctl letsencrypt` with the stored timer settings.
 
 ## Configuration
 
@@ -447,6 +459,55 @@ sudo ./bin/webctl letsencrypt \
 
 # Request only (no deploy)
 sudo ./bin/webctl letsencrypt --host example.com --deploy=false
+```
+
+### Automated Renewal (`letsencrypt-timer`)
+
+`webctl letsencrypt-timer` manages a systemd timer that checks certificate validity and renews only when needed.
+
+Subcommands:
+
+- `add`: install config + systemd service/timer and enable the timer.
+- `list`: print configured values and current systemd timer status.
+- `modify`: update configuration and restart the timer.
+- `delete`: disable/remove timer, service, and timer config file.
+
+Defaults:
+
+- `--interval 1d`
+- `--renew-before 10d`
+- Timer config file: `/etc/webd/letsencrypt-timer.json`
+
+Duration formats for `--interval` and `--renew-before`:
+
+- Supports `s`, `min`, `h`, `d`, `w`, `m`.
+- Examples: `12h`, `10d`, `1w`, `2m`, `30min`.
+- In this command, `m` means month (30 days).
+
+All `webctl letsencrypt` variables are configurable and stored by the timer:
+
+- `--host`
+- `--email`
+- `--directory-url`
+- `--challenge-dir`
+- `--cert-path`
+- `--key-path`
+- `--deploy`
+
+Examples:
+
+```sh
+# Install with defaults (daily check, renew at <=10 days remaining)
+sudo ./bin/webctl letsencrypt-timer add --host example.com --email admin@example.com
+
+# Weekly checks, renew earlier
+sudo ./bin/webctl letsencrypt-timer modify --interval 1w --renew-before 21d
+
+# Every two months, renew when certificate has <=30 days left
+sudo ./bin/webctl letsencrypt-timer modify --interval 2m --renew-before 30d
+
+# Inspect configured state and next trigger
+./bin/webctl letsencrypt-timer list
 ```
 
 ## Implementation
