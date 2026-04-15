@@ -26,14 +26,27 @@ import (
 	"webd/internal/app"
 )
 
-const defaultConfigYAML = `# Routes are matched by longest path first.
-routes:
-	- path: /api/
-		handler: http://127.0.0.1:8080/api/v1/
+const defaultConfigYAML = `
+# Template examples
+templates:
+  handler:
+    app1: https://localhost:3000
+  ipv4:
+    internal:
+	- 10.10.2.0/24
+	- 10.1.0.0/16
 
-  # Fallback route for all other traffic.
-	- path: /
-		handler: http://127.0.0.1:3000
+# Routes are matched by longest path first.
+routes:
+# Special API
+- path: /api/
+  handler: http://127.0.0.1:8080/api/v1/
+  allowed_ipv4:
+  - internal
+
+# Default route for all other traffic.
+- path: /
+  handler: app1
 `
 
 type passwdEntry struct {
