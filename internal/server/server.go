@@ -1,9 +1,11 @@
 package server
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -11,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path"
 	"regexp"
 	"sort"
 	"strconv"
@@ -28,8 +31,6 @@ type routeProxy struct {
 	redirectTarget    string
 	proxy             *httputil.ReverseProxy
 	websocketProxy    *httputil.ReverseProxy
-	locationRewriteRe *regexp.Regexp
-	locationReplace   string
 	localHandler      http.Handler
 	allowedIPv4Ranges []IPv4Range
 }
@@ -247,7 +248,11 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			locationRewriteRe = compiled
 			locationReplace = r.LocationRewrite.Replace
 		}
-		configureLocationHeaderRewrite(proxy, locationRewriteRe, locationReplace)
+		rewriteBaseHref := true
+		if r.RewriteBaseHref != nil {
+			rewriteBaseHref = *r.RewriteBaseHref
+		}
+		configureLocationHeaderRewrite(proxy, locationRewriteRe, locationReplace, rewriteBaseHref, prefix, targetURL.Path)
 		transport, transportErr := handleProxyTransport(handlerCfg)
 		if transportErr != nil {
 			return nil, fmt.Errorf("configure transport for path %q: %w", prefix, transportErr)
@@ -266,7 +271,7 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			wsProxy = httputil.NewSingleHostReverseProxy(wsTargetURL)
 			wsProxy.BufferPool = reverseProxyBufferPool
 			configureRouteProxyDirector(wsProxy, wsTargetURL, prefix)
-			configureLocationHeaderRewrite(wsProxy, locationRewriteRe, locationReplace)
+			configureLocationHeaderRewrite(wsProxy, locationRewriteRe, locationReplace, rewriteBaseHref, prefix, wsTargetURL.Path)
 			wsTransport, wsTransportErr := handleProxyTransport(wsCfg)
 			if wsTransportErr != nil {
 				return nil, fmt.Errorf("configure websocket transport for path %q: %w", prefix, wsTransportErr)
@@ -282,8 +287,6 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			prefix:            prefix,
 			proxy:             proxy,
 			websocketProxy:    wsProxy,
-			locationRewriteRe: locationRewriteRe,
-			locationReplace:   locationReplace,
 			allowedIPv4Ranges: append([]IPv4Range(nil), r.AllowedIPv4Ranges...),
 		})
 	}
@@ -439,24 +442,193 @@ func joinProxyPath(base, suffix string) string {
 	return base + suffix
 }
 
-func configureLocationHeaderRewrite(proxy *httputil.ReverseProxy, matchRe *regexp.Regexp, replace string) {
+func configureLocationHeaderRewrite(proxy *httputil.ReverseProxy, matchRe *regexp.Regexp, replace string, rewriteBaseHref bool, routePrefix, handlerBasePath string) {
 	proxy.ModifyResponse = func(resp *http.Response) error {
 		if resp == nil {
 			return nil
 		}
 		location := resp.Header.Get("Location")
 		if location == "" {
-			return nil
+			// no location header rewrite needed
+		} else {
+			rewritten := rewriteLocationToRequestHTTPS(location, resp.Request)
+			if matchRe != nil {
+				rewritten = matchRe.ReplaceAllString(rewritten, replace)
+			}
+			if rewritten != location {
+				resp.Header.Set("Location", rewritten)
+			}
 		}
-		rewritten := rewriteLocationToRequestHTTPS(location, resp.Request)
-		if matchRe != nil {
-			rewritten = matchRe.ReplaceAllString(rewritten, replace)
-		}
-		if rewritten != location {
-			resp.Header.Set("Location", rewritten)
+
+		if rewriteBaseHref {
+			if err := rewriteHTMLBaseHref(resp, routePrefix, handlerBasePath); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
+}
+
+func rewriteHTMLBaseHref(resp *http.Response, routePrefix, handlerBasePath string) error {
+	if resp == nil || resp.Body == nil {
+		return nil
+	}
+	contentType := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Type")))
+	if !strings.Contains(contentType, "text/html") && !strings.Contains(contentType, "application/xhtml+xml") {
+		return nil
+	}
+	contentEncoding := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Encoding")))
+	if contentEncoding != "" && contentEncoding != "identity" {
+		return nil
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	_ = resp.Body.Close()
+
+	baseHref := desiredFrontendBaseHref(routePrefix, handlerBasePath, resp.Request)
+	rewrittenBody, changed := injectOrReplaceBaseHref(body, baseHref)
+	if !changed {
+		resp.Body = io.NopCloser(bytes.NewReader(body))
+		resp.ContentLength = int64(len(body))
+		resp.Header.Set("Content-Length", strconv.Itoa(len(body)))
+		return nil
+	}
+
+	resp.Body = io.NopCloser(bytes.NewReader(rewrittenBody))
+	resp.ContentLength = int64(len(rewrittenBody))
+	resp.Header.Set("Content-Length", strconv.Itoa(len(rewrittenBody)))
+	return nil
+}
+
+func desiredFrontendBaseHref(routePrefix, handlerBasePath string, req *http.Request) string {
+	backendPath := "/"
+	if req != nil && req.URL != nil && strings.TrimSpace(req.URL.Path) != "" {
+		backendPath = req.URL.Path
+	}
+	rel := stripBasePathPrefix(backendPath, handlerBasePath)
+	dir := path.Dir(rel)
+	if dir == "." {
+		dir = "/"
+	}
+	if !strings.HasPrefix(dir, "/") {
+		dir = "/" + dir
+	}
+	frontend := joinProxyPath(normalizeRoutePrefix(routePrefix), dir)
+	if frontend == "" {
+		frontend = "/"
+	}
+	if !strings.HasSuffix(frontend, "/") {
+		frontend += "/"
+	}
+	return frontend
+}
+
+func stripBasePathPrefix(fullPath, basePath string) string {
+	full := strings.TrimSpace(fullPath)
+	if full == "" {
+		full = "/"
+	}
+	if !strings.HasPrefix(full, "/") {
+		full = "/" + full
+	}
+
+	base := strings.TrimSpace(basePath)
+	if base == "" || base == "/" {
+		return full
+	}
+	if !strings.HasPrefix(base, "/") {
+		base = "/" + base
+	}
+	base = strings.TrimRight(base, "/")
+
+	if full == base {
+		return "/"
+	}
+	if strings.HasPrefix(full, base+"/") {
+		return full[len(base):]
+	}
+	return full
+}
+
+func normalizeRoutePrefix(routePrefix string) string {
+	p := strings.TrimSpace(routePrefix)
+	if p == "" {
+		return "/"
+	}
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	if p != "/" {
+		p = strings.TrimRight(p, "/")
+	}
+	return p
+}
+
+var (
+	headTagRe      = regexp.MustCompile(`(?is)<head\b[^>]*>`)
+	headCloseTagRe = regexp.MustCompile(`(?is)</head\s*>`)
+	baseTagRe      = regexp.MustCompile(`(?is)<base\b[^>]*>`)
+	htmlTagRe      = regexp.MustCompile(`(?is)<html\b[^>]*>`)
+	bodyTagRe      = regexp.MustCompile(`(?is)<body\b[^>]*>`)
+	hrefAttrRe     = regexp.MustCompile(`(?is)\bhref\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)`)
+)
+
+func injectOrReplaceBaseHref(body []byte, href string) ([]byte, bool) {
+	doc := string(body)
+	baseTag := `<base href="` + href + `">`
+
+	headLoc := headTagRe.FindStringIndex(doc)
+	if headLoc == nil {
+		insert := `<head>` + baseTag + `</head>`
+		if htmlLoc := htmlTagRe.FindStringIndex(doc); htmlLoc != nil {
+			out := doc[:htmlLoc[1]] + insert + doc[htmlLoc[1]:]
+			return []byte(out), true
+		}
+		if bodyLoc := bodyTagRe.FindStringIndex(doc); bodyLoc != nil {
+			out := doc[:bodyLoc[0]] + insert + doc[bodyLoc[0]:]
+			return []byte(out), true
+		}
+		out := insert + doc
+		return []byte(out), true
+	}
+
+	headStart := headLoc[1]
+	headRest := doc[headStart:]
+	headCloseRel := headCloseTagRe.FindStringIndex(headRest)
+	headEnd := len(doc)
+	if headCloseRel != nil {
+		headEnd = headStart + headCloseRel[0]
+	}
+
+	headInner := doc[headStart:headEnd]
+	baseLoc := baseTagRe.FindStringIndex(headInner)
+	if baseLoc != nil {
+		orig := headInner[baseLoc[0]:baseLoc[1]]
+		repl := replaceOrInsertHrefAttr(orig, href)
+		if repl == orig {
+			return body, false
+		}
+		out := doc[:headStart+baseLoc[0]] + repl + doc[headStart+baseLoc[1]:]
+		return []byte(out), true
+	}
+
+	out := doc[:headStart] + baseTag + doc[headStart:]
+	return []byte(out), true
+}
+
+func replaceOrInsertHrefAttr(baseTag, href string) string {
+	hrefQuoted := `"` + href + `"`
+	if loc := hrefAttrRe.FindStringIndex(baseTag); loc != nil {
+		return baseTag[:loc[0]] + "href=" + hrefQuoted + baseTag[loc[1]:]
+	}
+	trimmed := strings.TrimRight(baseTag, ">")
+	if strings.HasSuffix(trimmed, "/") {
+		trimmed = strings.TrimRight(strings.TrimSpace(trimmed[:len(trimmed)-1]), " ")
+		return trimmed + " href=" + hrefQuoted + "/>"
+	}
+	return trimmed + " href=" + hrefQuoted + ">"
 }
 
 func rewriteLocationToRequestHTTPS(location string, req *http.Request) string {

@@ -110,6 +110,9 @@ type Route struct {
 	Websocket *WebsocketValue `yaml:"websocket,omitempty" json:"-"`
 	// LocationRewrite rewrites upstream Location response header values using a regex.
 	LocationRewrite *LocationRewrite `yaml:"location_rewrite,omitempty" json:"location_rewrite,omitempty"`
+	// RewriteBaseHref controls HTML <base href> normalization for proxied handlers.
+	// Default behavior is enabled; set to false to disable.
+	RewriteBaseHref *bool `yaml:"rewrite_base_href,omitempty" json:"rewrite_base_href,omitempty"`
 	// Browse enables directory listing when a file:// handler maps to a directory path.
 	Browse bool `yaml:"browse,omitempty" json:"browse,omitempty"`
 	// Insecure enables endpoint certificate pinning for https/wss handlers.
@@ -670,6 +673,15 @@ func Validate(cfg *Config) error {
 
 		if r.Browse && scheme != "file" {
 			return fmt.Errorf("browse is supported only for file handlers for path %q", prefix)
+		}
+
+		if r.RewriteBaseHref != nil {
+			if hasRedirect {
+				return fmt.Errorf("rewrite_base_href cannot be used with redirect for path %q", prefix)
+			}
+			if scheme == "file" {
+				return fmt.Errorf("rewrite_base_href is not supported for file handlers for path %q", prefix)
+			}
 		}
 
 		if r.LocationRewrite != nil {

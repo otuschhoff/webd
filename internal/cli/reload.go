@@ -337,6 +337,12 @@ func buildRuntimeConfig(cfg *Config, uid, gid int, stagedCAs map[string]*stagedT
 			return nil, fmt.Errorf("route path=%q allowed_ipv4: %w", route.Path, err)
 		}
 
+		var rewriteBaseHref *bool
+		if route.RewriteBaseHref != nil {
+			v := *route.RewriteBaseHref
+			rewriteBaseHref = &v
+		}
+
 		var locationRewrite *server.LocationRewrite
 		if route.LocationRewrite != nil {
 			locationRewrite = &server.LocationRewrite{
@@ -351,6 +357,7 @@ func buildRuntimeConfig(cfg *Config, uid, gid int, stagedCAs map[string]*stagedT
 				AllowedIPv4Ranges: allowedIPv4Ranges,
 				Browse:            route.Browse,
 				Redirect:          strings.TrimSpace(route.Redirect),
+				RewriteBaseHref:   rewriteBaseHref,
 			})
 			continue
 		}
@@ -385,6 +392,7 @@ func buildRuntimeConfig(cfg *Config, uid, gid int, stagedCAs map[string]*stagedT
 			Handler:           &handler,
 			WebsocketHandler:  wsHandler,
 			LocationRewrite:   locationRewrite,
+			RewriteBaseHref:   rewriteBaseHref,
 		})
 	}
 	return resolved, nil

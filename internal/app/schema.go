@@ -50,6 +50,9 @@ const sourceConfigSchemaJSON = `{
               }
             }
           },
+          "rewrite_base_href": {
+            "type": "boolean"
+          },
           "redirect": {
             "type": "string",
             "pattern": "^[A-Za-z][A-Za-z0-9+.-]*://.+"
@@ -237,6 +240,9 @@ const runtimeConfigSchemaJSON = `{
                 "type": "string"
               }
             }
+          },
+          "rewrite_base_href": {
+            "type": "boolean"
           },
           "handler": {
             "type": "object",

@@ -48,6 +48,7 @@ type Route struct {
 	Handler           *Handler         `json:"handler,omitempty"`
 	WebsocketHandler  *Handler         `json:"websocket_handler,omitempty"`
 	LocationRewrite   *LocationRewrite `json:"location_rewrite,omitempty"`
+	RewriteBaseHref   *bool            `json:"rewrite_base_href,omitempty"`
 }
 
 // Config is the runtime JSON configuration consumed by the webd daemon.
@@ -122,6 +123,9 @@ func Validate(cfg *Config) error {
 			if r.LocationRewrite != nil {
 				return fmt.Errorf("location_rewrite cannot be used with redirect for path %q", prefix)
 			}
+			if r.RewriteBaseHref != nil {
+				return fmt.Errorf("rewrite_base_href cannot be used with redirect for path %q", prefix)
+			}
 			continue
 		}
 
@@ -149,6 +153,9 @@ func Validate(cfg *Config) error {
 			}
 			if r.LocationRewrite != nil {
 				return fmt.Errorf("location_rewrite is not supported for file handlers for path %q", prefix)
+			}
+			if r.RewriteBaseHref != nil {
+				return fmt.Errorf("rewrite_base_href is not supported for file handlers for path %q", prefix)
 			}
 			continue
 		}
