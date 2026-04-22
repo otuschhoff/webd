@@ -1,7 +1,8 @@
 package server
-package server
 
 import (
+	"bufio"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -269,5 +270,53 @@ func TestServeHTTP_PathTraversalBlocked(t *testing.T) {
 		if strings.Contains(rec.Body.String(), "secret-content") {
 			t.Errorf("path traversal %q: secret file content leaked", path)
 		}
+	}
+}
+
+// --- statusRecorder tests ---
+
+// hijackableRecorder wraps httptest.ResponseRecorder and implements
+// http.Hijacker so we can verify that statusRecorder.Hijack delegates correctly.
+type hijackableRecorder struct {
+	*httptest.ResponseRecorder
+	hijackCalled bool
+}
+
+func (h *hijackableRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h.hijackCalled = true
+	return nil, nil, nil
+}
+
+// TestStatusRecorder_HijackDelegates is the regression test for WebSocket
+// proxy failures caused by statusRecorder not implementing http.Hijacker.
+// Before the fix, the WebSocket proxy would error with
+// "can't switch protocols using non-Hijacker ResponseWriter type *server.statusRecorder".
+func TestStatusRecorder_HijackDelegates(t *testing.T) {
+	inner := &hijackableRecorder{ResponseRecorder: httptest.NewRecorder()}
+	var rw http.ResponseWriter = &statusRecorder{ResponseWriter: inner}
+
+	hijacker, ok := rw.(http.Hijacker)
+	if !ok {
+		t.Fatal("statusRecorder does not implement http.Hijacker")
+	}
+	hijacker.Hijack()
+	if !inner.hijackCalled {
+		t.Error("Hijack() was not delegated to the underlying ResponseWriter")
+	}
+}
+
+// TestStatusRecorder_HijackErrorsWhenNotSupported verifies that Hijack returns
+// an error (rather than panicking) when the underlying ResponseWriter does not
+// implement http.Hijacker.
+func TestStatusRecorder_HijackErrorsWhenNotSupported(t *testing.T) {
+	var rw http.ResponseWriter = &statusRecorder{ResponseWriter: httptest.NewRecorder()}
+
+	hijacker, ok := rw.(http.Hijacker)
+	if !ok {
+		t.Fatal("statusRecorder does not implement http.Hijacker")
+	}
+	_, _, err := hijacker.Hijack()
+	if err == nil {
+		t.Error("expected error when underlying ResponseWriter is not a Hijacker, got nil")
 	}
 }
