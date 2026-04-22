@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -64,10 +65,16 @@ func (h *localFileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	targetPath, err := h.resolveTargetPath(relPath)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			http.NotFound(w, r)
+			return
+		}
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
+	// targetPath is already symlink-resolved; os.Stat here will not follow further symlinks
+	// outside the base directory.
 	info, err := os.Stat(targetPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -124,7 +131,27 @@ func (h *localFileHandler) resolveTargetPath(relPath string) (string, error) {
 		return "", fmt.Errorf("path escapes base directory")
 	}
 
-	return absTargetPath, nil
+	// Resolve symlinks and re-check containment to prevent symlink escape.
+	resolvedTargetPath, err := filepath.EvalSymlinks(absTargetPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("path not found: %w", os.ErrNotExist)
+		}
+		return "", fmt.Errorf("resolve symlinks: %w", err)
+	}
+	resolvedBase, err := filepath.EvalSymlinks(h.basePath)
+	if err != nil {
+		return "", fmt.Errorf("resolve base symlinks: %w", err)
+	}
+	relToResolvedBase, err := filepath.Rel(resolvedBase, resolvedTargetPath)
+	if err != nil {
+		return "", fmt.Errorf("check resolved target path: %w", err)
+	}
+	if relToResolvedBase == ".." || strings.HasPrefix(relToResolvedBase, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes base directory")
+	}
+
+	return resolvedTargetPath, nil
 }
 
 func localFileRelativePath(requestPath, routePrefix string) (string, bool) {
