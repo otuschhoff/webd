@@ -330,16 +330,22 @@ func loadPinnedCerts(certPath string) ([]*x509.Certificate, error) {
 	return certs, nil
 }
 
-func handleProxyForwardedHeaders(req *http.Request) {
+func handleProxyForwardedHeaders(req *http.Request, routePrefix string) {
 	clientAddr := handleRequestRemoteIP(req)
 	proto := handleRequestScheme(req)
 	port := handleRequestPort(req, proto)
 	host := req.Host
+	prefix := normalizeRoutePrefix(routePrefix)
 
 	req.Header.Set("X-Real-IP", clientAddr)
 	req.Header.Set("X-Forwarded-Host", host)
 	req.Header.Set("X-Forwarded-Proto", proto)
 	req.Header.Set("X-Forwarded-Port", port)
+	if prefix != "/" {
+		req.Header.Set("X-Forwarded-Prefix", prefix)
+	} else {
+		req.Header.Del("X-Forwarded-Prefix")
+	}
 
 	forwardedValue := fmt.Sprintf("for=%s;host=%q;proto=%s", handleFormatForwardedFor(clientAddr), host, proto)
 	if existing := strings.TrimSpace(req.Header.Get("Forwarded")); existing != "" {

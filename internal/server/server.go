@@ -392,7 +392,7 @@ func configureRouteProxyDirector(proxy *httputil.ReverseProxy, target *url.URL, 
 		if _, ok := req.Header["User-Agent"]; !ok {
 			req.Header.Set("User-Agent", "")
 		}
-		handleProxyForwardedHeaders(req)
+		handleProxyForwardedHeaders(req, routePrefix)
 	}
 }
 
