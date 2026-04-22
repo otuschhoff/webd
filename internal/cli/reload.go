@@ -470,22 +470,23 @@ func buildRuntimeHandlerForURL(handlerURL string, insecure bool, trustedCA *Trus
 		IPv4Addresses: resolvedIPs,
 	}
 	if trustedCA != nil {
+		// Explicit trusted_ca: always hard-fail. Silently falling back to
+		// system trust would defeat the operator's explicit trust anchor.
 		resolvedTrustedCA, err = stageTrustedCA(trustedCA, handlerCfg, uid, gid, stagedCAs)
 		if err != nil {
-			if !isTLSBackendCertFetchError(err) {
-				return server.Handler{}, err
-			}
-			resolvedTrustedCA = nil
+			return server.Handler{}, err
 		}
 	} else if insecure {
+		// insecure (cert-pin) mode: always hard-fail. Silently falling back to
+		// system trust would defeat the cert-pinning intent.
 		resolvedTrustedCA, err = stageInsecureTrustedCert(handlerCfg, uid, gid, stagedCAs)
 		if err != nil {
-			if !isTLSBackendCertFetchError(err) {
-				return server.Handler{}, err
-			}
-			resolvedTrustedCA = nil
+			return server.Handler{}, err
 		}
 	} else if protocol == "https" || protocol == "wss" {
+		// Auto-discovery mode: the operator did not configure an explicit CA.
+		// If the backend is temporarily unreachable we degrade gracefully to
+		// system default trust rather than blocking the reload entirely.
 		resolvedTrustedCA, err = stageAutoTrustedCA(handlerCfg, uid, gid, stagedCAs)
 		if err != nil {
 			if !isTLSBackendCertFetchError(err) {
