@@ -477,19 +477,25 @@ func buildRuntimeHandlerForURL(handlerURL string, insecure bool, trustedCA *Trus
 			return server.Handler{}, err
 		}
 	} else if insecure {
-		// insecure (cert-pin) mode: always hard-fail. Silently falling back to
-		// system trust would defeat the cert-pinning intent.
+		// insecure (cert-pin) mode: hard-fail for non-loopback backends.
+		// For loopback backends the service may not be running yet at daemon
+		// start time; a staging failure is treated as non-fatal and falls
+		// back to system trust for this reload cycle.
 		resolvedTrustedCA, err = stageInsecureTrustedCert(handlerCfg, uid, gid, stagedCAs)
 		if err != nil {
-			return server.Handler{}, err
+			if !isLoopbackHandler(handlerCfg) {
+				return server.Handler{}, err
+			}
+			resolvedTrustedCA = nil
 		}
 	} else if protocol == "https" || protocol == "wss" {
 		// Auto-discovery mode: the operator did not configure an explicit CA.
-		// If the backend is temporarily unreachable we degrade gracefully to
-		// system default trust rather than blocking the reload entirely.
+		// For non-loopback backends degrade gracefully only on transient fetch
+		// failures (backend unreachable). For loopback backends degrade on any
+		// TLS error — the local service may not be running yet.
 		resolvedTrustedCA, err = stageAutoTrustedCA(handlerCfg, uid, gid, stagedCAs)
 		if err != nil {
-			if !isTLSBackendCertFetchError(err) {
+			if !isTLSBackendCertFetchError(err) && !isLoopbackHandler(handlerCfg) {
 				return server.Handler{}, err
 			}
 			resolvedTrustedCA = nil
@@ -505,6 +511,23 @@ func isTLSBackendCertFetchError(err error) bool {
 		return false
 	}
 	return strings.Contains(err.Error(), "fetch handler TLS certificates for")
+}
+
+// isLoopbackHandler returns true when every resolved IPv4 address for the
+// handler is a loopback address (127.x.x.x). Loopback backends are subject
+// to more lenient TLS staging: the local service may not be running yet at
+// daemon start time.
+func isLoopbackHandler(handler server.Handler) bool {
+	if len(handler.IPv4Addresses) == 0 {
+		return false
+	}
+	for _, rawIP := range handler.IPv4Addresses {
+		ip := net.ParseIP(rawIP)
+		if ip == nil || !ip.IsLoopback() {
+			return false
+		}
+	}
+	return true
 }
 
 func autoWebsocketURL(handlerRawURL string) (string, bool) {

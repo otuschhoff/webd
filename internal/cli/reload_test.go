@@ -95,30 +95,53 @@ func TestBuildRuntimeHandlerForURL_ExplicitTrustedCAHardFails(t *testing.T) {
 	}
 }
 
-// TestBuildRuntimeHandlerForURL_InsecureHardFails mirrors the above for the
-// insecure (cert-pin) mode: stageInsecureTrustedCert must always hard-fail
-// rather than falling back to system trust.
-//
-// With port 1 the connection is refused before any system-dir operations, so
-// we do get a genuine isTLSBackendCertFetchError.  Under the old code this
-// would have been swallowed; under the fixed code it must propagate.
-func TestBuildRuntimeHandlerForURL_InsecureHardFails(t *testing.T) {
+// TestBuildRuntimeHandlerForURL_InsecureLoopbackLenient verifies that
+// insecure (cert-pin) mode with a loopback backend is treated leniently:
+// a staging failure (e.g. service not yet running at daemon start) must NOT
+// block the reload — it should fall back to nil TrustedCA (system trust).
+// This is the regression test for the startup-ordering failure observed with
+// localhost backends configured with insecure: true.
+func TestBuildRuntimeHandlerForURL_InsecureLoopbackLenient(t *testing.T) {
 	stagedCAs := make(map[string]*stagedTrustedCA)
 
-	_, err := buildRuntimeHandlerForURL(
+	h, err := buildRuntimeHandlerForURL(
 		"https://127.0.0.1:1/",
 		true, // insecure / cert-pin
 		nil,
 		0, 0,
 		stagedCAs,
 	)
-	if err == nil {
-		t.Fatal("expected error for insecure mode with unreachable backend, got nil")
+	if err != nil {
+		// Allow permission errors from ensureRuntimeTrustedCADir (non-root)
+		// as those occur before the loopback-leniency path.
+		if strings.Contains(err.Error(), "trusted_ca runtime directory") ||
+			strings.Contains(err.Error(), "permission denied") {
+			t.Skipf("skipping: requires root for CA dir setup: %v", err)
+		}
+		t.Fatalf("loopback insecure backend should not hard-fail on connection refused, got: %v", err)
 	}
-	// The error must be the real fetch failure, not a nil TrustedCA result.
-	if !isTLSBackendCertFetchError(err) {
-		// It might be an ensureRuntimeTrustedCADir failure (non-root); that is
-		// also an error propagation, which is correct.
-		t.Logf("got non-fetch error (likely permission): %v", err)
+	if h.TrustedCA != nil {
+		t.Errorf("expected nil TrustedCA for unreachable loopback insecure backend, got %+v", h.TrustedCA)
+	}
+}
+
+// TestBuildRuntimeHandlerForURL_InsecureNonLoopbackHardFails verifies that
+// insecure (cert-pin) mode still hard-fails for non-loopback backends, since
+// silently falling back to system trust for a remote backend would defeat
+// cert pinning.
+func TestBuildRuntimeHandlerForURL_InsecureNonLoopbackHardFails(t *testing.T) {
+	stagedCAs := make(map[string]*stagedTrustedCA)
+
+	// 192.0.2.1 is TEST-NET (RFC 5737) — routable but reserved, always
+	// connection-refused/unreachable in a test environment.
+	_, err := buildRuntimeHandlerForURL(
+		"https://192.0.2.1:443/",
+		true, // insecure / cert-pin
+		nil,
+		0, 0,
+		stagedCAs,
+	)
+	if err == nil {
+		t.Fatal("expected error for insecure mode with unreachable non-loopback backend, got nil")
 	}
 }
