@@ -561,11 +561,15 @@ func ensureVersionedInstall() (string, string, error) {
 		if err != nil {
 			return "", "", fmt.Errorf("compute relative path for current symlink: %w", err)
 		}
-		if err := os.Remove(currentLink); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return "", "", fmt.Errorf("remove existing current symlink %s: %w", currentLink, err)
+		// Atomically place the symlink via a temp-name rename to avoid the
+		// TOCTOU window between removing the old link and creating the new one.
+		tmpLink := fmt.Sprintf("%s.symtmp%d", currentLink, os.Getpid())
+		if err := os.Symlink(relTarget, tmpLink); err != nil {
+			return "", "", fmt.Errorf("create temp symlink for %s: %w", currentLink, err)
 		}
-		if err := os.Symlink(relTarget, currentLink); err != nil {
-			return "", "", fmt.Errorf("create current symlink %s -> %s: %w", currentLink, relTarget, err)
+		if err := os.Rename(tmpLink, currentLink); err != nil {
+			_ = os.Remove(tmpLink)
+			return "", "", fmt.Errorf("atomic replace current symlink %s -> %s: %w", currentLink, relTarget, err)
 		}
 	}
 

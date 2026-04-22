@@ -387,23 +387,27 @@ func ensureSymlink(path, target string) error {
 	}
 	info, err := os.Lstat(path)
 	if err == nil {
-		if info.Mode()&os.ModeSymlink != 0 {
-			existingTarget, readErr := os.Readlink(path)
-			if readErr == nil && existingTarget == target {
-				return nil
-			}
-			if removeErr := os.Remove(path); removeErr != nil {
-				return fmt.Errorf("replace symlink %s: %w", path, removeErr)
-			}
-		} else {
+		if info.Mode()&os.ModeSymlink == 0 {
 			return fmt.Errorf("cannot replace non-symlink path %s", path)
+		}
+		existingTarget, readErr := os.Readlink(path)
+		if readErr == nil && existingTarget == target {
+			return nil
 		}
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("lstat %s: %w", path, err)
 	}
 
-	if err := os.Symlink(target, path); err != nil {
-		return fmt.Errorf("create symlink %s -> %s: %w", path, target, err)
+	// Create a temporary symlink then atomically rename it over the destination.
+	// This avoids the TOCTOU window between removing the old symlink and creating
+	// the new one: os.Rename is atomic on Linux and macOS (same filesystem).
+	tmpPath := fmt.Sprintf("%s.symtmp%d", path, os.Getpid())
+	if err := os.Symlink(target, tmpPath); err != nil {
+		return fmt.Errorf("create temp symlink for %s: %w", path, err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("atomic replace symlink %s -> %s: %w", path, target, err)
 	}
 	return nil
 }
