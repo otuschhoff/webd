@@ -37,8 +37,8 @@ type routeProxy struct {
 }
 
 type routeSet struct {
-	routes   []routeProxy
-	matcher  *routeTrieNode
+	routes  []routeProxy
+	matcher *routeTrieNode
 }
 
 type routeTrieNode struct {
@@ -145,13 +145,13 @@ func Run(opts RunOptions) error {
 			if cfgErr != nil {
 				errLog.Printf("config reload failed: %v", cfgErr)
 			} else {
-					reloadedRoutes, routesErr := buildRouteProxies(cfgNow, errLog)
+				reloadedRoutes, routesErr := buildRouteProxies(cfgNow, errLog)
 				if routesErr != nil {
 					errLog.Printf("route reload failed: %v", routesErr)
 				} else {
-						oldRoutes := activeRoutes.Load().(routeSet)
-						activeRoutes.Store(newRouteSet(reloadedRoutes))
-						closeRouteProxies(oldRoutes.routes)
+					oldRoutes := activeRoutes.Load().(routeSet)
+					activeRoutes.Store(newRouteSet(reloadedRoutes))
+					closeRouteProxies(oldRoutes.routes)
 					opsLog.Printf("proxy routes reloaded successfully: routes=%d", len(reloadedRoutes))
 				}
 			}
