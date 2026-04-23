@@ -249,7 +249,9 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			locationRewriteRe = compiled
 			locationReplace = r.RewriteLocation.Replace
 		}
-		rewriteBaseHref := true
+		// Rewriting HTML base href can be expensive because it requires
+		// buffering and rewriting response bodies. Keep it opt-in.
+		rewriteBaseHref := false
 		if r.RewriteBaseHref != nil {
 			rewriteBaseHref = *r.RewriteBaseHref
 		}

@@ -21,6 +21,13 @@ import (
 	"webd/internal/app"
 )
 
+const (
+	defaultMaxIdleConns        = 256
+	defaultMaxIdleConnsPerHost = 64
+	defaultMaxConnsPerHost     = 256
+	defaultIdleConnTimeout     = 90 * time.Second
+)
+
 func newRequestRouter(activeRoutes *atomic.Value, errLog *log.Logger, httpsAddr string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handleIncomingRequest(w, r, activeRoutes, errLog, httpsAddr)
@@ -217,10 +224,10 @@ func handleNotFoundRequest(w http.ResponseWriter, r *http.Request) {
 func handleProxyTransport(handler Handler) (http.RoundTripper, error) {
 	base := http.DefaultTransport.(*http.Transport).Clone()
 	base.DisableKeepAlives = false
-	base.MaxIdleConns = 1024
-	base.MaxIdleConnsPerHost = 1024
-	base.IdleConnTimeout = 0
-	base.MaxConnsPerHost = 0
+	base.MaxIdleConns = defaultMaxIdleConns
+	base.MaxIdleConnsPerHost = defaultMaxIdleConnsPerHost
+	base.IdleConnTimeout = defaultIdleConnTimeout
+	base.MaxConnsPerHost = defaultMaxConnsPerHost
 	base.ForceAttemptHTTP2 = true
 	base.TLSHandshakeTimeout = 10 * time.Second
 	base.ExpectContinueTimeout = 1 * time.Second
