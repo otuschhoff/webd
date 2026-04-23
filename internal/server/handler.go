@@ -42,8 +42,8 @@ func handleIncomingRequest(w http.ResponseWriter, r *http.Request, activeRoutes 
 		return
 	}
 
-	routesNow := activeRoutes.Load().([]routeProxy)
-	if handleRouteRequest(w, r, routesNow, errLog) {
+	routesNow := activeRoutes.Load().(routeSet)
+	if handleRouteRequest(w, r, routesNow.matcher, errLog) {
 		return
 	}
 
@@ -160,14 +160,13 @@ func parseListenPort(addr string) string {
 	return ""
 }
 
-func handleRouteRequest(w http.ResponseWriter, r *http.Request, routes []routeProxy, errLog *log.Logger) bool {
+func handleRouteRequest(w http.ResponseWriter, r *http.Request, matcher *routeTrieNode, errLog *log.Logger) bool {
 	clientIP := handleRequestRemoteIP(r)
-	for _, route := range routes {
-		if strings.HasPrefix(r.URL.Path, route.prefix) {
-			return handleMatchedRouteRequest(w, r, route, clientIP, errLog)
-		}
+	route := matcher.match(r.URL.Path)
+	if route == nil {
+		return false
 	}
-	return false
+	return handleMatchedRouteRequest(w, r, *route, clientIP, errLog)
 }
 
 func handleMatchedRouteRequest(w http.ResponseWriter, r *http.Request, route routeProxy, clientIP string, errLog *log.Logger) bool {
@@ -238,16 +237,22 @@ func handleProxyTransport(handler Handler) (http.RoundTripper, error) {
 		if len(addresses) == 0 {
 			return nil, fmt.Errorf("no handler IPv4 addresses configured")
 		}
-		errs := make([]string, 0, len(addresses))
+		attempts := 0
+		firstIP := ""
+		var firstErr error
 		for _, rawIP := range addresses {
+			attempts++
 			addr := net.JoinHostPort(rawIP, port)
 			conn, err := dialer.DialContext(ctx, network, addr)
 			if err == nil {
 				return conn, nil
 			}
-			errs = append(errs, fmt.Sprintf("%s: %v", rawIP, err))
+			if firstErr == nil {
+				firstErr = err
+				firstIP = rawIP
+			}
 		}
-		return nil, fmt.Errorf("dial handler %s:%s failed: %s", handler.Hostname, port, strings.Join(errs, "; "))
+		return nil, fmt.Errorf("dial handler %s:%s failed after %d attempts (first %s: %v)", handler.Hostname, port, attempts, firstIP, firstErr)
 	}
 
 	if usesTLSHandler(handler.Protocol) {
@@ -337,24 +342,23 @@ func loadPinnedCerts(certPath string) ([]*x509.Certificate, error) {
 	return certs, nil
 }
 
-func handleProxyForwardedHeaders(req *http.Request, routePrefix string) {
+func handleProxyForwardedHeaders(req *http.Request, forwardedPrefix string) {
 	clientAddr := handleRequestRemoteIP(req)
 	proto := handleRequestScheme(req)
 	port := handleRequestPort(req, proto)
 	host := req.Host
-	prefix := normalizeRoutePrefix(routePrefix)
 
 	req.Header.Set("X-Real-IP", clientAddr)
 	req.Header.Set("X-Forwarded-Host", host)
 	req.Header.Set("X-Forwarded-Proto", proto)
 	req.Header.Set("X-Forwarded-Port", port)
-	if prefix != "/" {
-		req.Header.Set("X-Forwarded-Prefix", prefix)
+	if forwardedPrefix != "" {
+		req.Header.Set("X-Forwarded-Prefix", forwardedPrefix)
 	} else {
 		req.Header.Del("X-Forwarded-Prefix")
 	}
 
-	forwardedValue := fmt.Sprintf("for=%s;host=%q;proto=%s", handleFormatForwardedFor(clientAddr), host, proto)
+	forwardedValue := "for=" + handleFormatForwardedFor(clientAddr) + ";host=" + strconv.Quote(host) + ";proto=" + proto
 	if existing := strings.TrimSpace(req.Header.Get("Forwarded")); existing != "" {
 		req.Header.Set("Forwarded", existing+", "+forwardedValue)
 		return
@@ -392,7 +396,7 @@ func handleRequestPort(req *http.Request, proto string) string {
 
 func handleFormatForwardedFor(ip string) string {
 	if strings.Contains(ip, ":") {
-		return fmt.Sprintf("\"[%s]\"", ip)
+		return "\"[" + ip + "]\""
 	}
-	return fmt.Sprintf("\"%s\"", ip)
+	return "\"" + ip + "\""
 }

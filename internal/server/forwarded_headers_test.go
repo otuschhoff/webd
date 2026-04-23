@@ -45,7 +45,7 @@ func TestHandleProxyForwardedHeaders_OmitsPrefixForRootRoute(t *testing.T) {
 		RemoteAddr: "203.0.113.9:50123",
 	}
 
-	handleProxyForwardedHeaders(req, "/")
+	handleProxyForwardedHeaders(req, "")
 
 	if got := req.Header.Get("X-Forwarded-Prefix"); got != "" {
 		t.Fatalf("X-Forwarded-Prefix = %q, want empty for root route", got)

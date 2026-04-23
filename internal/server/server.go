@@ -36,6 +36,16 @@ type routeProxy struct {
 	allowedIPv4Ranges []IPv4Range
 }
 
+type routeSet struct {
+	routes   []routeProxy
+	matcher  *routeTrieNode
+}
+
+type routeTrieNode struct {
+	route    *routeProxy
+	children map[byte]*routeTrieNode
+}
+
 const (
 	acmeChallengeURLPrefix = "/.well-known/acme-challenge/"
 	acmeChallengeJailDir   = "/acme-challenge"
@@ -98,8 +108,8 @@ func Run(opts RunOptions) error {
 	}
 
 	var activeRoutes atomic.Value
-	activeRoutes.Store(routes)
-	defer closeRouteProxies(activeRoutes.Load().([]routeProxy))
+	activeRoutes.Store(newRouteSet(routes))
+	defer closeRouteProxies(activeRoutes.Load().(routeSet).routes)
 
 	router := newRequestRouter(&activeRoutes, errLog, opts.HTTPSAddr)
 	handler := accessLogMiddleware(router, accessLog)
@@ -135,13 +145,13 @@ func Run(opts RunOptions) error {
 			if cfgErr != nil {
 				errLog.Printf("config reload failed: %v", cfgErr)
 			} else {
-				reloadedRoutes, routesErr := buildRouteProxies(cfgNow, errLog)
+					reloadedRoutes, routesErr := buildRouteProxies(cfgNow, errLog)
 				if routesErr != nil {
 					errLog.Printf("route reload failed: %v", routesErr)
 				} else {
-					oldRoutes := activeRoutes.Load().([]routeProxy)
-					activeRoutes.Store(reloadedRoutes)
-					closeRouteProxies(oldRoutes)
+						oldRoutes := activeRoutes.Load().(routeSet)
+						activeRoutes.Store(newRouteSet(reloadedRoutes))
+						closeRouteProxies(oldRoutes.routes)
 					opsLog.Printf("proxy routes reloaded successfully: routes=%d", len(reloadedRoutes))
 				}
 			}
@@ -186,14 +196,23 @@ func Run(opts RunOptions) error {
 }
 
 func closeRouteProxies(routes []routeProxy) {
+	seen := make(map[*http.Transport]struct{})
 	for _, route := range routes {
-		closeProxyTransport(route.proxy)
-		closeProxyTransport(route.websocketProxy)
+		closeProxyTransport(route.proxy, seen)
+		closeProxyTransport(route.websocketProxy, seen)
 	}
 }
 
-func closeProxyTransport(proxy *httputil.ReverseProxy) {
+func closeProxyTransport(proxy *httputil.ReverseProxy, seen map[*http.Transport]struct{}) {
 	if proxy == nil || proxy.Transport == nil {
+		return
+	}
+	if t, ok := proxy.Transport.(*http.Transport); ok {
+		if _, exists := seen[t]; exists {
+			return
+		}
+		seen[t] = struct{}{}
+		t.CloseIdleConnections()
 		return
 	}
 	if closer, ok := proxy.Transport.(interface{ CloseIdleConnections() }); ok {
@@ -203,6 +222,7 @@ func closeProxyTransport(proxy *httputil.ReverseProxy) {
 
 func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 	routes := make([]routeProxy, 0, len(cfg.Routes))
+	transportCache := make(map[string]http.RoundTripper)
 
 	for _, r := range cfg.Routes {
 		prefix := strings.TrimSpace(r.Path)
@@ -256,7 +276,7 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			rewriteBaseHref = *r.RewriteBaseHref
 		}
 		configureLocationHeaderRewrite(proxy, locationRewriteRe, locationReplace, rewriteBaseHref, prefix, targetURL.Path)
-		transport, transportErr := handleProxyTransport(handlerCfg)
+		transport, transportErr := getOrCreateRouteTransport(transportCache, handlerCfg)
 		if transportErr != nil {
 			return nil, fmt.Errorf("configure transport for path %q: %w", prefix, transportErr)
 		}
@@ -275,7 +295,7 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			wsProxy.BufferPool = reverseProxyBufferPool
 			configureRouteProxyDirector(wsProxy, wsTargetURL, prefix)
 			configureLocationHeaderRewrite(wsProxy, locationRewriteRe, locationReplace, rewriteBaseHref, prefix, wsTargetURL.Path)
-			wsTransport, wsTransportErr := handleProxyTransport(wsCfg)
+			wsTransport, wsTransportErr := getOrCreateRouteTransport(transportCache, wsCfg)
 			if wsTransportErr != nil {
 				return nil, fmt.Errorf("configure websocket transport for path %q: %w", prefix, wsTransportErr)
 			}
@@ -299,6 +319,93 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 	})
 
 	return routes, nil
+}
+
+func newRouteSet(routes []routeProxy) routeSet {
+	return routeSet{routes: routes, matcher: buildRouteTrie(routes)}
+}
+
+func buildRouteTrie(routes []routeProxy) *routeTrieNode {
+	root := &routeTrieNode{children: make(map[byte]*routeTrieNode)}
+	for i := range routes {
+		prefix := routes[i].prefix
+		node := root
+		for j := 0; j < len(prefix); j++ {
+			ch := prefix[j]
+			next := node.children[ch]
+			if next == nil {
+				next = &routeTrieNode{children: make(map[byte]*routeTrieNode)}
+				node.children[ch] = next
+			}
+			node = next
+		}
+		route := &routes[i]
+		node.route = route
+	}
+	return root
+}
+
+func (t *routeTrieNode) match(path string) *routeProxy {
+	if t == nil {
+		return nil
+	}
+	node := t
+	matched := node.route
+	for i := 0; i < len(path); i++ {
+		next := node.children[path[i]]
+		if next == nil {
+			break
+		}
+		node = next
+		if node.route != nil {
+			matched = node.route
+		}
+	}
+	return matched
+}
+
+func getOrCreateRouteTransport(cache map[string]http.RoundTripper, handler Handler) (http.RoundTripper, error) {
+	key := transportCacheKey(handler)
+	if t, ok := cache[key]; ok {
+		return t, nil
+	}
+	t, err := handleProxyTransport(handler)
+	if err != nil {
+		return nil, err
+	}
+	cache[key] = t
+	return t, nil
+}
+
+func transportCacheKey(handler Handler) string {
+	protocol := strings.ToLower(strings.TrimSpace(handler.Protocol))
+	var b strings.Builder
+	b.WriteString(protocol)
+	b.WriteByte('|')
+	b.WriteString(handler.Hostname)
+	b.WriteByte('|')
+	b.WriteString(strconv.Itoa(handler.Port))
+	b.WriteByte('|')
+	for i, ip := range handler.IPv4Addresses {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(ip)
+	}
+	b.WriteByte('|')
+	if handler.TrustedCA == nil {
+		b.WriteString("none")
+	} else {
+		b.WriteString(handler.TrustedCA.Name)
+		b.WriteByte(':')
+		b.WriteString(handler.TrustedCA.File)
+		if handler.TrustedCA.PinCert {
+			b.WriteString(":pin")
+		} else {
+			b.WriteString(":ca")
+		}
+	}
+	return b.String()
 }
 
 func isClientIPv4Allowed(rawIP string, ranges []IPv4Range) bool {
@@ -374,6 +481,10 @@ func usesTLSHandler(protocol string) bool {
 
 func configureRouteProxyDirector(proxy *httputil.ReverseProxy, target *url.URL, routePrefix string) {
 	targetQuery := target.RawQuery
+	forwardedPrefix := normalizeRoutePrefix(routePrefix)
+	if forwardedPrefix == "/" {
+		forwardedPrefix = ""
+	}
 	proxy.Director = func(req *http.Request) {
 		trimmedPath, trimmedRawPath := trimRoutePrefix(req.URL.Path, req.URL.RawPath, routePrefix)
 
@@ -394,7 +505,7 @@ func configureRouteProxyDirector(proxy *httputil.ReverseProxy, target *url.URL, 
 		if _, ok := req.Header["User-Agent"]; !ok {
 			req.Header.Set("User-Agent", "")
 		}
-		handleProxyForwardedHeaders(req, routePrefix)
+		handleProxyForwardedHeaders(req, forwardedPrefix)
 	}
 }
 
