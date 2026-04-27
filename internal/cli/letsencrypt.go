@@ -277,6 +277,12 @@ func RunLetsEncrypt(opts LetsEncryptOptions) error {
 		}
 	}
 
+	// Check if postfix config references the cert/key and reload if needed
+	if err := checkAndReloadPostfix(opsLog, errLog, certPath, keyPath); err != nil {
+		// This is already handled as a warning inside checkAndReloadPostfix, so just log
+		errLog.Printf("postfix reload check error: %v", err)
+	}
+
 	if !opts.Deploy {
 		return nil
 	}
@@ -511,5 +517,45 @@ func stopWebdService(opsLog *log.Logger) error {
 	}
 
 	opsLog.Printf("webd service stopped")
+	return nil
+}
+
+// checkAndReloadPostfix checks if postfix configuration references the given
+// certificate or key paths. If so, reloads the postfix service.
+func checkAndReloadPostfix(opsLog, errLog *log.Logger, certPath, keyPath string) error {
+	const postfixConfigPath = "/etc/postfix/main.cf"
+
+	// Check if postfix config file exists
+	postfixConfig, err := os.ReadFile(postfixConfigPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Postfix not configured, nothing to do
+			return nil
+		}
+		// If there's a read error, log a warning but don't fail
+		errLog.Printf("warning: could not read postfix config %s: %v", postfixConfigPath, err)
+		return nil
+	}
+
+	configStr := string(postfixConfig)
+	certReferenced := strings.Contains(configStr, certPath)
+	keyReferenced := strings.Contains(configStr, keyPath)
+
+	if !certReferenced && !keyReferenced {
+		// Postfix config doesn't reference these cert/key paths
+		return nil
+	}
+
+	opsLog.Printf("postfix config references new cert/key cert=%v key=%v", certReferenced, keyReferenced)
+
+	// Reload postfix service
+	cmd := exec.Command("systemctl", "reload", "postfix")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		// Log as warning but don't fail the letsencrypt operation
+		errLog.Printf("warning: postfix reload failed: %v\noutput: %s", err, string(output))
+		return nil
+	}
+
+	opsLog.Printf("postfix service reloaded")
 	return nil
 }
