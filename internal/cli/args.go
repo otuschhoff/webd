@@ -128,6 +128,8 @@ func ExecuteControl() error {
 		},
 	}
 
+	configCmd := newConfigCommand(&runOpts)
+
 	setupCmd := &cobra.Command{
 		Use:           "setup",
 		Short:         "Prepare system user/group, permissions, and service unit",
@@ -266,7 +268,7 @@ func ExecuteControl() error {
 		letsEncryptTimerRunCmd,
 	)
 
-	rootCmd.AddCommand(versionCmd, reloadCmd, reloadTimerCmd, checkCmd, setupCmd, letsEncryptCmd, letsEncryptTimerCmd)
+	rootCmd.AddCommand(versionCmd, reloadCmd, reloadTimerCmd, checkCmd, configCmd, setupCmd, letsEncryptCmd, letsEncryptTimerCmd)
 	return rootCmd.Execute()
 }
 
