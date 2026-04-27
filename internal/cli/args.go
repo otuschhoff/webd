@@ -176,6 +176,7 @@ func ExecuteControl() error {
 	letsEncryptCmd.Flags().StringVar(&letsEncryptOpts.CertPath, "cert-path", letsEncryptOpts.CertPath, "Path to save certificate chain PEM")
 	letsEncryptCmd.Flags().StringVar(&letsEncryptOpts.KeyPath, "key-path", letsEncryptOpts.KeyPath, "Path to save private key PEM")
 	letsEncryptCmd.Flags().BoolVar(&letsEncryptOpts.Deploy, "deploy", letsEncryptOpts.Deploy, "Deploy to running webd after issuance")
+	letsEncryptCmd.Flags().BoolVar(&letsEncryptOpts.NoPostfixACL, "no-postfix-acl", letsEncryptOpts.NoPostfixACL, "Disable setting postfix user ACL on TLS key")
 
 	bindLetsEncryptRunOpts := func(target *LetsEncryptOptions) {
 		target.Reload.HTTPAddr = runOpts.HTTPAddr
@@ -254,6 +255,7 @@ func ExecuteControl() error {
 		cmd.Flags().StringVar(&letsEncryptTimerOpts.LetsEncrypt.CertPath, "cert-path", letsEncryptTimerOpts.LetsEncrypt.CertPath, "Path to save certificate chain PEM")
 		cmd.Flags().StringVar(&letsEncryptTimerOpts.LetsEncrypt.KeyPath, "key-path", letsEncryptTimerOpts.LetsEncrypt.KeyPath, "Path to save private key PEM")
 		cmd.Flags().BoolVar(&letsEncryptTimerOpts.LetsEncrypt.Deploy, "deploy", letsEncryptTimerOpts.LetsEncrypt.Deploy, "Deploy to running webd after issuance")
+		cmd.Flags().BoolVar(&letsEncryptTimerOpts.LetsEncrypt.NoPostfixACL, "no-postfix-acl", letsEncryptTimerOpts.LetsEncrypt.NoPostfixACL, "Disable setting postfix user ACL on TLS key")
 	}
 
 	bindLetsEncryptTimerFlags(letsEncryptTimerAddCmd)

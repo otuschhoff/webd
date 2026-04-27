@@ -31,6 +31,7 @@ type LetsEncryptOptions struct {
 	CertPath     string
 	KeyPath      string
 	Deploy       bool
+	NoPostfixACL bool
 
 	Reload Options
 }
@@ -246,6 +247,35 @@ func RunLetsEncrypt(opts LetsEncryptOptions) error {
 		}
 	}
 	opsLog.Printf("saved letsencrypt certificate host=%q cert=%q key=%q", host, certPath, keyPath)
+
+	// Set ACLs for postfix user if not disabled
+	if !opts.NoPostfixACL {
+		keyDir := filepath.Dir(keyPath)
+		if err := setPostfixDirACL(keyDir); err != nil {
+			// Log the error but don't fail the entire operation
+			errLog.Printf("warning: failed to set postfix directory ACL on %s: %v", keyDir, err)
+		} else {
+			opsLog.Printf("set postfix execute ACL on directory=%q", keyDir)
+		}
+
+		if err := setPostfixKeyACL(keyPath); err != nil {
+			// Log the error but don't fail the entire operation
+			errLog.Printf("warning: failed to set postfix key ACL on %s: %v", keyPath, err)
+		} else {
+			opsLog.Printf("set postfix read ACL on key=%q", keyPath)
+		}
+
+		// If using default layout, also set ACL on /etc/pki/tls/private/self.key
+		if useDefaultLayout {
+			selfKeyPath := filepath.Join(filepath.Dir(keyPath), "..", "self.key")
+			if err := setPostfixKeyACL(selfKeyPath); err != nil {
+				// Log the error but don't fail the entire operation
+				errLog.Printf("warning: failed to set postfix ACL on self.key: %v", err)
+			} else {
+				opsLog.Printf("set postfix read ACL on self.key=%q", selfKeyPath)
+			}
+		}
+	}
 
 	if !opts.Deploy {
 		return nil
