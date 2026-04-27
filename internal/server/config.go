@@ -57,9 +57,14 @@ type Config struct {
 }
 
 // LoadJSON reads, parses, and validates a runtime JSON configuration file.
+// If the file does not exist, it returns an empty config (for ACME-only mode).
 func LoadJSON(path string) (*Config, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			// Allow missing config for ACME-only mode (no routes needed)
+			return &Config{Routes: []Route{}}, nil
+		}
 		return nil, fmt.Errorf("read runtime config %s: %w", path, err)
 	}
 
@@ -83,9 +88,11 @@ func LoadJSON(path string) (*Config, error) {
 }
 
 // Validate checks that the runtime config contains valid route definitions.
+// If config is empty (ACME-only mode), validation passes.
 func Validate(cfg *Config) error {
 	if len(cfg.Routes) == 0 {
-		return fmt.Errorf("config must contain at least one route")
+		// Allow zero routes for ACME-only mode (serving challenges only)
+		return nil
 	}
 
 	for _, r := range cfg.Routes {

@@ -39,9 +39,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	for _, path := range []string{configPath, tlsCertPath, tlsKeyPath} {
-		if _, err := os.ReadFile(path); err != nil {
-			errLog.Printf("fatal: read required file %s failed: %v", path, err)
+	// TLS key and cert are optional (ACME-only mode will create temporary certs)
+	// Config is optional (empty config for ACME-only mode)
+	// Validate only the TLS key existence if cert exists (they must be paired)
+	if certInfo, certErr := os.Stat(tlsCertPath); certErr == nil && !certInfo.IsDir() {
+		if _, keyErr := os.ReadFile(tlsKeyPath); keyErr != nil {
+			errLog.Printf("fatal: TLS cert exists but key file cannot be read: %v", keyErr)
 			os.Exit(1)
 		}
 	}

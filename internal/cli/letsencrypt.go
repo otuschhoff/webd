@@ -9,8 +9,10 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"log"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -98,6 +100,22 @@ func RunLetsEncrypt(opts LetsEncryptOptions) error {
 	if err := ensureChallengeDir(opts.ChallengeDir, runUID, runGID); err != nil {
 		return err
 	}
+
+	// Manage webd service lifecycle for ACME challenge serving
+	webdWasRunning := isWebdServiceRunning()
+	if !webdWasRunning {
+		if err := startWebdService(opsLog); err != nil {
+			return fmt.Errorf("auto-start webd for acme challenge: %w", err)
+		}
+	}
+	// Ensure webd is stopped if we started it, even if there's an error
+	defer func() {
+		if !webdWasRunning && isWebdServiceRunning() {
+			if stopErr := stopWebdService(opsLog); stopErr != nil {
+				errLog.Printf("failed to stop webd service after letsencrypt: %v", stopErr)
+			}
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
@@ -409,5 +427,59 @@ func ensureSymlink(path, target string) error {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("atomic replace symlink %s -> %s: %w", path, target, err)
 	}
+	return nil
+}
+
+// isWebdServiceRunning checks if the webd systemd service is currently active.
+func isWebdServiceRunning() bool {
+	cmd := exec.Command("systemctl", "is-active", "webd")
+	err := cmd.Run()
+	// is-active returns exit 0 if the service is active
+	return err == nil
+}
+
+// startWebdService starts the webd systemd service and waits for it to be ready.
+func startWebdService(opsLog *log.Logger) error {
+	if isWebdServiceRunning() {
+		opsLog.Printf("webd service already running")
+		return nil
+	}
+
+	opsLog.Printf("starting webd service via systemctl")
+	cmd := exec.Command("systemctl", "start", "webd")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("systemctl start webd failed: %w\noutput: %s", err, string(output))
+	}
+
+	// Wait for webd to be ready (listening on HTTP port 80)
+	// Try for up to 10 seconds
+	startTime := time.Now()
+	timeout := 10 * time.Second
+	for time.Since(startTime) < timeout {
+		conn, err := net.Dial("tcp", ":80")
+		if err == nil {
+			_ = conn.Close()
+			opsLog.Printf("webd service ready after %.1f seconds", time.Since(startTime).Seconds())
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	return fmt.Errorf("webd service did not start listening on HTTP port 80 within %v", timeout)
+}
+
+// stopWebdService stops the webd systemd service if it's running.
+func stopWebdService(opsLog *log.Logger) error {
+	if !isWebdServiceRunning() {
+		return nil
+	}
+
+	opsLog.Printf("stopping webd service via systemctl")
+	cmd := exec.Command("systemctl", "stop", "webd")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("systemctl stop webd failed: %w\noutput: %s", err, string(output))
+	}
+
+	opsLog.Printf("webd service stopped")
 	return nil
 }
