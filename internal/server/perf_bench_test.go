@@ -1,7 +1,9 @@
 package server
 
 import (
+	"crypto/tls"
 	"fmt"
+	"net/http"
 	"testing"
 )
 
@@ -50,4 +52,38 @@ func BenchmarkNormalizeIPv4Ranges(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = normalizeIPv4Ranges(input)
 	}
+}
+
+func BenchmarkHandleProxyForwardedHeaders(b *testing.B) {
+	b.Run("no_existing_forwarded", func(b *testing.B) {
+		req := &http.Request{
+			Header:     make(http.Header),
+			Host:       "frontend.example.test:8443",
+			RemoteAddr: "203.0.113.9:50123",
+			TLS:        &tls.ConnectionState{},
+		}
+
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			req.Header.Del("Forwarded")
+			handleProxyForwardedHeaders(req, "/apps/demo")
+		}
+	})
+
+	b.Run("with_existing_forwarded", func(b *testing.B) {
+		req := &http.Request{
+			Header:     make(http.Header),
+			Host:       "frontend.example.test",
+			RemoteAddr: "203.0.113.9:50123",
+		}
+		req.Header.Set("Forwarded", `for=198.51.100.20;proto=http`)
+
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			req.Header.Set("Forwarded", `for=198.51.100.20;proto=http`)
+			handleProxyForwardedHeaders(req, "/apps/demo")
+		}
+	})
 }

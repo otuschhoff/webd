@@ -358,12 +358,20 @@ func handleProxyForwardedHeaders(req *http.Request, forwardedPrefix string) {
 		req.Header.Del("X-Forwarded-Prefix")
 	}
 
-	forwardedValue := "for=" + handleFormatForwardedFor(clientAddr) + ";host=" + strconv.Quote(host) + ";proto=" + proto
-	if existing := strings.TrimSpace(req.Header.Get("Forwarded")); existing != "" {
-		req.Header.Set("Forwarded", existing+", "+forwardedValue)
-		return
+	existing := strings.TrimSpace(req.Header.Get("Forwarded"))
+	var b strings.Builder
+	b.Grow(len(existing) + len(clientAddr) + len(host) + len(proto) + 48)
+	if existing != "" {
+		b.WriteString(existing)
+		b.WriteString(", ")
 	}
-	req.Header.Set("Forwarded", forwardedValue)
+	b.WriteString("for=")
+	b.WriteString(handleFormatForwardedFor(clientAddr))
+	b.WriteString(";host=")
+	b.WriteString(strconv.Quote(host))
+	b.WriteString(";proto=")
+	b.WriteString(proto)
+	req.Header.Set("Forwarded", b.String())
 }
 
 func handleRequestRemoteIP(req *http.Request) string {
