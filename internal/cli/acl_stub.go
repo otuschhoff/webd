@@ -3,7 +3,6 @@
 
 package cli
 
-
 // setPostfixKeyACL is a no-op on non-Linux systems
 func setPostfixKeyACL(keyPath string) error {
 	return nil
