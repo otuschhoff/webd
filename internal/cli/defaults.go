@@ -103,6 +103,7 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 SystemCallArchitectures=native
 SystemCallFilter=@system-service @network-io @file-system @signal @process
 SystemCallFilter=~@clock @debug @module @mount @obsolete @privileged @raw-io @reboot @swap
+SystemCallFilter=~unlink unlinkat rename renameat renameat2 rmdir mkdir mkdirat mknod mknodat link linkat symlink symlinkat
 
 # Resources
 MemoryMax=%s
