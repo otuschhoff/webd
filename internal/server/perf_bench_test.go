@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
 	"testing"
+	"time"
 )
 
 func BenchmarkRouteTrieMatch(b *testing.B) {
@@ -199,6 +201,43 @@ func BenchmarkClientIP(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			_ = clientIP(req)
+		}
+	})
+}
+
+func BenchmarkBuildAccessLogLine(b *testing.B) {
+	start := time.Date(2026, 4, 28, 12, 34, 56, 0, time.UTC)
+	ip := "203.0.113.9"
+	method := "GET"
+	uri := "/apps/demo/api/v1/items?foo=bar"
+	status := 200
+	size := 12345
+	durationMs := int64(17)
+	userAgent := "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+
+	b.Run("builder", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = buildAccessLogLine(start, ip, method, uri, status, size, durationMs, userAgent)
+		}
+	})
+
+	b.Run("sprintf_baseline", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = fmt.Sprintf(
+				"t=%s i=%s x=%s u=%s c=%d b=%d d=%d a=%s",
+				start.UTC().Format(time.RFC3339),
+				ip,
+				method,
+				uri,
+				status,
+				size,
+				durationMs,
+				strconv.Quote(userAgent),
+			)
 		}
 	})
 }

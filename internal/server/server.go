@@ -906,16 +906,51 @@ func accessLogMiddleware(next http.Handler, logger *log.Logger) http.Handler {
 		}
 		dur := time.Since(start)
 
-		logger.Printf(
-			"t=%s i=%s x=%s u=%s c=%d b=%d d=%d a=%s",
-			start.UTC().Format(time.RFC3339),
+		logger.Print(buildAccessLogLine(
+			start,
 			clientIP(r),
 			r.Method,
 			r.URL.RequestURI(),
 			rec.status,
 			rec.size,
 			dur.Milliseconds(),
-			strconv.Quote(r.UserAgent()),
-		)
+			r.UserAgent(),
+		))
 	})
+}
+
+func buildAccessLogLine(start time.Time, ip, method, uri string, status, size int, durationMs int64, userAgent string) string {
+	var b strings.Builder
+	b.Grow(len(ip) + len(method) + len(uri) + len(userAgent) + 96)
+
+	b.WriteString("t=")
+	b.WriteString(start.UTC().Format(time.RFC3339))
+	b.WriteString(" i=")
+	b.WriteString(ip)
+	b.WriteString(" x=")
+	b.WriteString(method)
+	b.WriteString(" u=")
+	b.WriteString(uri)
+	b.WriteString(" c=")
+	appendIntToBuilder(&b, int64(status))
+	b.WriteString(" b=")
+	appendIntToBuilder(&b, int64(size))
+	b.WriteString(" d=")
+	appendIntToBuilder(&b, durationMs)
+	b.WriteString(" a=")
+	appendQuotedStringToBuilder(&b, userAgent)
+
+	return b.String()
+}
+
+func appendIntToBuilder(b *strings.Builder, v int64) {
+	var buf [20]byte
+	out := strconv.AppendInt(buf[:0], v, 10)
+	b.Write(out)
+}
+
+func appendQuotedStringToBuilder(b *strings.Builder, value string) {
+	var local [256]byte
+	quoted := strconv.AppendQuote(local[:0], value)
+	b.Write(quoted)
 }
