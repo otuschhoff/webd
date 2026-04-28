@@ -229,12 +229,13 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 		if prefix == "" {
 			prefix = "/"
 		}
+		allowedIPv4Ranges := normalizeIPv4Ranges(r.AllowedIPv4Ranges)
 
 		if strings.TrimSpace(r.Redirect) != "" {
 			routes = append(routes, routeProxy{
 				prefix:            prefix,
 				redirectTarget:    strings.TrimSpace(r.Redirect),
-				allowedIPv4Ranges: append([]IPv4Range(nil), r.AllowedIPv4Ranges...),
+				allowedIPv4Ranges: allowedIPv4Ranges,
 			})
 			continue
 		}
@@ -248,7 +249,7 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			if localErr != nil {
 				return nil, fmt.Errorf("configure local file handler for path %q: %w", prefix, localErr)
 			}
-			routes = append(routes, routeProxy{prefix: prefix, localHandler: localHandler, allowedIPv4Ranges: append([]IPv4Range(nil), r.AllowedIPv4Ranges...)})
+			routes = append(routes, routeProxy{prefix: prefix, localHandler: localHandler, allowedIPv4Ranges: allowedIPv4Ranges})
 			continue
 		}
 
@@ -310,7 +311,7 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			prefix:            prefix,
 			proxy:             proxy,
 			websocketProxy:    wsProxy,
-			allowedIPv4Ranges: append([]IPv4Range(nil), r.AllowedIPv4Ranges...),
+			allowedIPv4Ranges: allowedIPv4Ranges,
 		})
 	}
 
@@ -418,12 +419,50 @@ func isClientIPv4Allowed(rawIP string, ranges []IPv4Range) bool {
 		return false
 	}
 	n := uint32(v4[0])<<24 | uint32(v4[1])<<16 | uint32(v4[2])<<8 | uint32(v4[3])
-	for _, r := range ranges {
-		if n >= r.Start && n <= r.End {
-			return true
+
+	// ranges are normalized to sorted non-overlapping intervals.
+	lo, hi := 0, len(ranges)-1
+	for lo <= hi {
+		mid := lo + (hi-lo)/2
+		r := ranges[mid]
+		if n < r.Start {
+			hi = mid - 1
+			continue
 		}
+		if n > r.End {
+			lo = mid + 1
+			continue
+		}
+		return true
 	}
 	return false
+}
+
+func normalizeIPv4Ranges(in []IPv4Range) []IPv4Range {
+	if len(in) == 0 {
+		return nil
+	}
+	out := append([]IPv4Range(nil), in...)
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Start == out[j].Start {
+			return out[i].End < out[j].End
+		}
+		return out[i].Start < out[j].Start
+	})
+
+	merged := out[:1]
+	for i := 1; i < len(out); i++ {
+		cur := out[i]
+		last := &merged[len(merged)-1]
+		if cur.Start <= last.End+1 {
+			if cur.End > last.End {
+				last.End = cur.End
+			}
+			continue
+		}
+		merged = append(merged, cur)
+	}
+	return merged
 }
 
 func handlerURL(handler Handler) *url.URL {
