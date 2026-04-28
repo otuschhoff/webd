@@ -963,8 +963,10 @@ func buildAccessLogLine(start time.Time, ip, method, uri string, status, size in
 	var b strings.Builder
 	b.Grow(len(ip) + len(method) + len(uri) + len(userAgent) + 96)
 
+	start = start.UTC()
 	b.WriteString("t=")
-	b.WriteString(start.UTC().Format(time.RFC3339))
+	var timeBuf [len(time.RFC3339)]byte
+	b.Write(start.AppendFormat(timeBuf[:0], time.RFC3339))
 	b.WriteString(" i=")
 	b.WriteString(ip)
 	b.WriteString(" x=")

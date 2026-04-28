@@ -3,6 +3,8 @@ package server
 import (
 	"crypto/tls"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -238,6 +240,87 @@ func BenchmarkBuildAccessLogLine(b *testing.B) {
 				durationMs,
 				strconv.Quote(userAgent),
 			)
+		}
+	})
+}
+
+type benchmarkResponseWriter struct {
+	header http.Header
+	status int
+	size   int
+}
+
+func (w *benchmarkResponseWriter) Header() http.Header {
+	if w.header == nil {
+		w.header = make(http.Header)
+	}
+	return w.header
+}
+
+func (w *benchmarkResponseWriter) WriteHeader(statusCode int) {
+	w.status = statusCode
+}
+
+func (w *benchmarkResponseWriter) Write(p []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	w.size += len(p)
+	return len(p), nil
+}
+
+func BenchmarkAccessLogMiddleware(b *testing.B) {
+	logger := log.New(io.Discard, "", 0)
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	handler := accessLogMiddleware(next, logger)
+	req := &http.Request{
+		Method:     http.MethodGet,
+		Header:     make(http.Header),
+		Host:       "frontend.example.test",
+		RemoteAddr: "203.0.113.9:50123",
+		URL: &url.URL{
+			Path:     "/apps/demo/api/v1/items",
+			RawQuery: "foo=bar",
+		},
+	}
+	req.Header.Set("User-Agent", "bench-agent/1.0")
+	w := &benchmarkResponseWriter{}
+
+	b.Run("current_middleware", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			w.status = 0
+			w.size = 0
+			handler.ServeHTTP(w, req)
+		}
+	})
+
+	b.Run("manual_inline_baseline", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			w.status = 0
+			w.size = 0
+			start := time.Now()
+			rec := &statusRecorder{ResponseWriter: w}
+			next.ServeHTTP(rec, req)
+			if rec.status == 0 {
+				rec.status = http.StatusOK
+			}
+			logger.Print(buildAccessLogLine(
+				start,
+				clientIP(req),
+				req.Method,
+				req.URL.RequestURI(),
+				rec.status,
+				rec.size,
+				time.Since(start).Milliseconds(),
+				req.UserAgent(),
+			))
 		}
 	})
 }
