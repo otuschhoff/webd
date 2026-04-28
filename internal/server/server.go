@@ -520,12 +520,13 @@ func usesTLSHandler(protocol string) bool {
 
 func configureRouteProxyDirector(proxy *httputil.ReverseProxy, target *url.URL, routePrefix string) {
 	targetQuery := target.RawQuery
-	forwardedPrefix := normalizeRoutePrefix(routePrefix)
-	if forwardedPrefix == "/" {
-		forwardedPrefix = ""
+	normalizedPrefix := normalizeRoutePrefix(routePrefix)
+	if normalizedPrefix == "/" {
+		normalizedPrefix = ""
 	}
+	forwardedPrefix := normalizedPrefix
 	proxy.Director = func(req *http.Request) {
-		trimmedPath, trimmedRawPath := trimRoutePrefix(req.URL.Path, req.URL.RawPath, routePrefix)
+		trimmedPath, trimmedRawPath := trimRoutePrefix(req.URL.Path, req.URL.RawPath, normalizedPrefix)
 
 		req.URL.Scheme = target.Scheme
 		req.URL.Host = target.Host
@@ -549,25 +550,23 @@ func configureRouteProxyDirector(proxy *httputil.ReverseProxy, target *url.URL, 
 }
 
 func trimRoutePrefix(path, rawPath, routePrefix string) (string, string) {
-	prefix := strings.TrimSpace(routePrefix)
-	if prefix == "" || prefix == "/" {
+	if routePrefix == "" {
 		return path, rawPath
 	}
-	prefix = strings.TrimRight(prefix, "/")
 
 	trimmedPath := path
-	if path == prefix {
+	if path == routePrefix {
 		trimmedPath = ""
-	} else if strings.HasPrefix(path, prefix+"/") {
-		trimmedPath = path[len(prefix):]
+	} else if strings.HasPrefix(path, routePrefix+"/") {
+		trimmedPath = path[len(routePrefix):]
 	}
 
 	trimmedRawPath := rawPath
 	if rawPath != "" {
-		if rawPath == prefix {
+		if rawPath == routePrefix {
 			trimmedRawPath = ""
-		} else if strings.HasPrefix(rawPath, prefix+"/") {
-			trimmedRawPath = rawPath[len(prefix):]
+		} else if strings.HasPrefix(rawPath, routePrefix+"/") {
+			trimmedRawPath = rawPath[len(routePrefix):]
 		}
 	}
 

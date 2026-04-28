@@ -366,12 +366,36 @@ func handleProxyForwardedHeaders(req *http.Request, forwardedPrefix string) {
 		b.WriteString(", ")
 	}
 	b.WriteString("for=")
-	b.WriteString(handleFormatForwardedFor(clientAddr))
+	appendForwardedForValue(&b, clientAddr)
 	b.WriteString(";host=")
-	b.WriteString(strconv.Quote(host))
+	appendQuotedHeaderValue(&b, host)
 	b.WriteString(";proto=")
 	b.WriteString(proto)
 	req.Header.Set("Forwarded", b.String())
+}
+
+func appendForwardedForValue(b *strings.Builder, ip string) {
+	if strings.Contains(ip, ":") {
+		b.WriteString("\"[")
+		b.WriteString(ip)
+		b.WriteString("]\"")
+		return
+	}
+	b.WriteByte('"')
+	b.WriteString(ip)
+	b.WriteByte('"')
+}
+
+func appendQuotedHeaderValue(b *strings.Builder, value string) {
+	b.WriteByte('"')
+	for i := 0; i < len(value); i++ {
+		switch value[i] {
+		case '\\', '"':
+			b.WriteByte('\\')
+		}
+		b.WriteByte(value[i])
+	}
+	b.WriteByte('"')
 }
 
 func handleRequestRemoteIP(req *http.Request) string {

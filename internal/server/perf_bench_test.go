@@ -4,6 +4,8 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"testing"
 )
 
@@ -84,6 +86,65 @@ func BenchmarkHandleProxyForwardedHeaders(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			req.Header.Set("Forwarded", `for=198.51.100.20;proto=http`)
 			handleProxyForwardedHeaders(req, "/apps/demo")
+		}
+	})
+}
+
+func BenchmarkConfigureRouteProxyDirector(b *testing.B) {
+	proxy := &httputil.ReverseProxy{}
+	target := &url.URL{
+		Scheme:   "http",
+		Host:     "backend.internal:8080",
+		Path:     "/base",
+		RawPath:  "/base",
+		RawQuery: "target=1",
+	}
+	configureRouteProxyDirector(proxy, target, "/apps/demo")
+
+	b.Run("no_existing_forwarded", func(b *testing.B) {
+		req := &http.Request{
+			Header:     make(http.Header),
+			Host:       "frontend.example.test:8443",
+			RemoteAddr: "203.0.113.9:50123",
+			TLS:        &tls.ConnectionState{},
+			URL: &url.URL{
+				Path:     "/apps/demo/api/v1/items",
+				RawPath:  "/apps/demo/api/v1/items",
+				RawQuery: "request=1",
+			},
+		}
+
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			req.URL.Path = "/apps/demo/api/v1/items"
+			req.URL.RawPath = "/apps/demo/api/v1/items"
+			req.URL.RawQuery = "request=1"
+			req.Header.Del("Forwarded")
+			proxy.Director(req)
+		}
+	})
+
+	b.Run("with_existing_forwarded", func(b *testing.B) {
+		req := &http.Request{
+			Header:     make(http.Header),
+			Host:       "frontend.example.test",
+			RemoteAddr: "203.0.113.9:50123",
+			URL: &url.URL{
+				Path:     "/apps/demo/api/v1/items",
+				RawPath:  "/apps/demo/api/v1/items",
+				RawQuery: "request=1",
+			},
+		}
+
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			req.URL.Path = "/apps/demo/api/v1/items"
+			req.URL.RawPath = "/apps/demo/api/v1/items"
+			req.URL.RawQuery = "request=1"
+			req.Header.Set("Forwarded", `for=198.51.100.20;proto=http`)
+			proxy.Director(req)
 		}
 	})
 }
