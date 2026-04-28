@@ -399,11 +399,7 @@ func appendQuotedHeaderValue(b *strings.Builder, value string) {
 }
 
 func handleRequestRemoteIP(req *http.Request) string {
-	host, _, err := net.SplitHostPort(req.RemoteAddr)
-	if err != nil {
-		return req.RemoteAddr
-	}
-	return host
+	return remoteAddrHost(req.RemoteAddr)
 }
 
 func handleRequestScheme(req *http.Request) string {

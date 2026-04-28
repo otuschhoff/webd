@@ -845,11 +845,27 @@ func clientIP(r *http.Request) string {
 		return xff
 	}
 
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
+	return remoteAddrHost(r.RemoteAddr)
+}
+
+func remoteAddrHost(addr string) string {
+	if addr == "" {
+		return ""
 	}
-	return host
+	if i := strings.LastIndexByte(addr, ':'); i > 0 {
+		if addr[0] == '[' {
+			if end := strings.LastIndexByte(addr, ']'); end > 0 && end < i {
+				return addr[1:end]
+			}
+		} else if strings.IndexByte(addr, ':') == i {
+			return addr[:i]
+		}
+	}
+	host, _, err := net.SplitHostPort(addr)
+	if err == nil {
+		return host
+	}
+	return addr
 }
 
 type statusRecorder struct {
