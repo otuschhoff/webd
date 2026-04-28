@@ -147,4 +147,58 @@ func BenchmarkConfigureRouteProxyDirector(b *testing.B) {
 			proxy.Director(req)
 		}
 	})
+
+	b.Run("empty_rawpath", func(b *testing.B) {
+		req := &http.Request{
+			Header:     make(http.Header),
+			Host:       "frontend.example.test",
+			RemoteAddr: "203.0.113.9:50123",
+			URL: &url.URL{
+				Path:     "/apps/demo/api/v1/items",
+				RawPath:  "",
+				RawQuery: "request=1",
+			},
+		}
+
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			req.URL.Path = "/apps/demo/api/v1/items"
+			req.URL.RawPath = ""
+			req.URL.RawQuery = "request=1"
+			req.Header.Del("Forwarded")
+			proxy.Director(req)
+		}
+	})
+}
+
+func BenchmarkClientIP(b *testing.B) {
+	b.Run("xff_single", func(b *testing.B) {
+		req := &http.Request{Header: make(http.Header), RemoteAddr: "203.0.113.9:50123"}
+		req.Header.Set("X-Forwarded-For", "198.51.100.7")
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = clientIP(req)
+		}
+	})
+
+	b.Run("xff_multi", func(b *testing.B) {
+		req := &http.Request{Header: make(http.Header), RemoteAddr: "203.0.113.9:50123"}
+		req.Header.Set("X-Forwarded-For", "198.51.100.7, 203.0.113.9")
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = clientIP(req)
+		}
+	})
+
+	b.Run("remote_addr", func(b *testing.B) {
+		req := &http.Request{Header: make(http.Header), RemoteAddr: "203.0.113.9:50123"}
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = clientIP(req)
+		}
+	})
 }

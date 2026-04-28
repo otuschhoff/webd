@@ -531,7 +531,11 @@ func configureRouteProxyDirector(proxy *httputil.ReverseProxy, target *url.URL, 
 		req.URL.Scheme = target.Scheme
 		req.URL.Host = target.Host
 		req.URL.Path = joinProxyPath(target.Path, trimmedPath)
-		req.URL.RawPath = joinProxyPath(target.RawPath, trimmedRawPath)
+		if target.RawPath == "" && trimmedRawPath == "" {
+			req.URL.RawPath = ""
+		} else {
+			req.URL.RawPath = joinProxyPath(target.RawPath, trimmedRawPath)
+		}
 
 		switch {
 		case targetQuery == "":
@@ -835,10 +839,10 @@ func loadTrustedCertPool(certPath string) (*x509.CertPool, error) {
 
 func clientIP(r *http.Request) string {
 	if xff := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); xff != "" {
-		parts := strings.Split(xff, ",")
-		if len(parts) > 0 {
-			return strings.TrimSpace(parts[0])
+		if i := strings.IndexByte(xff, ','); i >= 0 {
+			return strings.TrimSpace(xff[:i])
 		}
+		return xff
 	}
 
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
