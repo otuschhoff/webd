@@ -57,6 +57,11 @@ type byteSlicePool struct {
 	pool sync.Pool
 }
 
+type errorLogLimiter struct {
+	windowSec  atomic.Int64
+	suppressed atomic.Uint64
+}
+
 func (p *byteSlicePool) Get() []byte {
 	if buf, ok := p.pool.Get().([]byte); ok && len(buf) == 32*1024 {
 		return buf
@@ -69,6 +74,23 @@ func (p *byteSlicePool) Put(b []byte) {
 		return
 	}
 	p.pool.Put(b[:32*1024])
+}
+
+func (l *errorLogLimiter) shouldLog(now time.Time) (bool, uint64) {
+	return l.shouldLogUnix(now.Unix())
+}
+
+func (l *errorLogLimiter) shouldLogUnix(sec int64) (bool, uint64) {
+	prev := l.windowSec.Load()
+	if prev == sec {
+		l.suppressed.Add(1)
+		return false, 0
+	}
+	if l.windowSec.CompareAndSwap(prev, sec) {
+		return true, l.suppressed.Swap(0)
+	}
+	l.suppressed.Add(1)
+	return false, 0
 }
 
 // Run starts the HTTP and HTTPS reverse proxy servers and handles SIGHUP reloads.
@@ -282,8 +304,17 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			return nil, fmt.Errorf("configure transport for path %q: %w", prefix, transportErr)
 		}
 		proxy.Transport = transport
+		proxyErrorLimiter := &errorLogLimiter{}
 		proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, proxyErr error) {
 			http.Error(w, "Bad Gateway", http.StatusBadGateway)
+			logNow, suppressed := proxyErrorLimiter.shouldLog(time.Now())
+			if !logNow {
+				return
+			}
+			if suppressed > 0 {
+				errLog.Printf("proxy_error handler=%q path=%q err=%v suppressed=%d", handler, req.URL.Path, proxyErr, suppressed)
+				return
+			}
 			errLog.Printf("proxy_error handler=%q path=%q err=%v", handler, req.URL.Path, proxyErr)
 		}
 
@@ -301,8 +332,17 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 				return nil, fmt.Errorf("configure websocket transport for path %q: %w", prefix, wsTransportErr)
 			}
 			wsProxy.Transport = wsTransport
+			wsProxyErrorLimiter := &errorLogLimiter{}
 			wsProxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, proxyErr error) {
 				http.Error(w, "Bad Gateway", http.StatusBadGateway)
+				logNow, suppressed := wsProxyErrorLimiter.shouldLog(time.Now())
+				if !logNow {
+					return
+				}
+				if suppressed > 0 {
+					errLog.Printf("websocket_proxy_error handler=%q path=%q err=%v suppressed=%d", wsTarget, req.URL.Path, proxyErr, suppressed)
+					return
+				}
 				errLog.Printf("websocket_proxy_error handler=%q path=%q err=%v", wsTarget, req.URL.Path, proxyErr)
 			}
 		}
