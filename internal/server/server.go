@@ -939,6 +939,15 @@ func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 func accessLogMiddleware(next http.Handler, logger *log.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+		if isWebSocketUpgrade(r) {
+			logger.Print(buildWebSocketAccessStartLogLine(
+				start,
+				clientIP(r),
+				r.Method,
+				r.URL.RequestURI(),
+				r.UserAgent(),
+			))
+		}
 		rec := &statusRecorder{ResponseWriter: w}
 		next.ServeHTTP(rec, r)
 		if rec.status == 0 {
@@ -957,6 +966,27 @@ func accessLogMiddleware(next http.Handler, logger *log.Logger) http.Handler {
 			r.UserAgent(),
 		))
 	})
+}
+
+func buildWebSocketAccessStartLogLine(start time.Time, ip, method, uri, userAgent string) string {
+	var b strings.Builder
+	b.Grow(len(ip) + len(method) + len(uri) + len(userAgent) + 96)
+
+	start = start.UTC()
+	b.WriteString("t=")
+	var timeBuf [len(time.RFC3339)]byte
+	b.Write(start.AppendFormat(timeBuf[:0], time.RFC3339))
+	b.WriteString(" i=")
+	b.WriteString(ip)
+	b.WriteString(" x=")
+	b.WriteString(method)
+	b.WriteString(" u=")
+	b.WriteString(uri)
+	b.WriteString(" s=ws_start")
+	b.WriteString(" a=")
+	appendQuotedStringToBuilder(&b, userAgent)
+
+	return b.String()
 }
 
 func buildAccessLogLine(start time.Time, ip, method, uri string, status, size int, durationMs int64, userAgent string) string {
