@@ -55,10 +55,32 @@ func TestTransportCacheKey_DiffersByTLSAndTarget(t *testing.T) {
 	b := Handler{Protocol: "https", Hostname: "api.local", Port: 443, IPv4Addresses: []string{"127.0.0.2"}}
 	c := Handler{Protocol: "http", Hostname: "api.local", Port: 443, IPv4Addresses: []string{"127.0.0.1"}}
 
-	if transportCacheKey(a) == transportCacheKey(b) {
+	if transportCacheKey(a, true) == transportCacheKey(b, true) {
 		t.Fatal("cache key should differ for different backend IP sets")
 	}
-	if transportCacheKey(a) == transportCacheKey(c) {
+	if transportCacheKey(a, true) == transportCacheKey(c, true) {
 		t.Fatal("cache key should differ for different protocols")
+	}
+	if transportCacheKey(a, true) == transportCacheKey(a, false) {
+		t.Fatal("cache key should differ by HTTP/2 setting")
+	}
+}
+
+func TestBuildRouteProxies_NormalizesTrailingSlashForMatching(t *testing.T) {
+	cfg := &Config{Routes: []Route{{Path: "/foo/", Redirect: "https://example.com/foo"}}}
+	routes, err := buildRouteProxies(cfg, nil)
+	if err != nil {
+		t.Fatalf("buildRouteProxies() error = %v", err)
+	}
+
+	m := newRouteSet(routes).matcher
+	for _, path := range []string{"/foo", "/foo/", "/foo/bar"} {
+		r := m.match(path)
+		if r == nil {
+			t.Fatalf("match(%q) returned nil", path)
+		}
+		if r.prefix != "/foo" {
+			t.Fatalf("match(%q) = %q, want %q", path, r.prefix, "/foo")
+		}
 	}
 }

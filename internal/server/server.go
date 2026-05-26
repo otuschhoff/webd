@@ -247,10 +247,7 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 	transportCache := make(map[string]http.RoundTripper)
 
 	for _, r := range cfg.Routes {
-		prefix := strings.TrimSpace(r.Path)
-		if prefix == "" {
-			prefix = "/"
-		}
+		prefix := normalizeRoutePrefix(r.Path)
 		allowedIPv4Ranges := normalizeIPv4Ranges(r.AllowedIPv4Ranges)
 
 		if strings.TrimSpace(r.Redirect) != "" {
@@ -299,7 +296,7 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			rewriteBaseHref = *r.RewriteBaseHref
 		}
 		configureLocationHeaderRewrite(proxy, locationRewriteRe, locationReplace, rewriteBaseHref, prefix, targetURL.Path)
-		transport, transportErr := getOrCreateRouteTransport(transportCache, handlerCfg)
+		transport, transportErr := getOrCreateRouteTransport(transportCache, handlerCfg, true)
 		if transportErr != nil {
 			return nil, fmt.Errorf("configure transport for path %q: %w", prefix, transportErr)
 		}
@@ -327,7 +324,7 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			wsProxy.BufferPool = reverseProxyBufferPool
 			configureRouteProxyDirector(wsProxy, wsTargetURL, prefix)
 			configureLocationHeaderRewrite(wsProxy, locationRewriteRe, locationReplace, rewriteBaseHref, prefix, wsTargetURL.Path)
-			wsTransport, wsTransportErr := getOrCreateRouteTransport(transportCache, wsCfg)
+			wsTransport, wsTransportErr := getOrCreateRouteTransport(transportCache, wsCfg, false)
 			if wsTransportErr != nil {
 				return nil, fmt.Errorf("configure websocket transport for path %q: %w", prefix, wsTransportErr)
 			}
@@ -405,12 +402,12 @@ func (t *routeTrieNode) match(path string) *routeProxy {
 	return matched
 }
 
-func getOrCreateRouteTransport(cache map[string]http.RoundTripper, handler Handler) (http.RoundTripper, error) {
-	key := transportCacheKey(handler)
+func getOrCreateRouteTransport(cache map[string]http.RoundTripper, handler Handler, forceAttemptHTTP2 bool) (http.RoundTripper, error) {
+	key := transportCacheKey(handler, forceAttemptHTTP2)
 	if t, ok := cache[key]; ok {
 		return t, nil
 	}
-	t, err := handleProxyTransport(handler)
+	t, err := handleProxyTransport(handler, forceAttemptHTTP2)
 	if err != nil {
 		return nil, err
 	}
@@ -418,7 +415,7 @@ func getOrCreateRouteTransport(cache map[string]http.RoundTripper, handler Handl
 	return t, nil
 }
 
-func transportCacheKey(handler Handler) string {
+func transportCacheKey(handler Handler, forceAttemptHTTP2 bool) string {
 	protocol := strings.ToLower(strings.TrimSpace(handler.Protocol))
 	var b strings.Builder
 	b.WriteString(protocol)
@@ -445,6 +442,12 @@ func transportCacheKey(handler Handler) string {
 		} else {
 			b.WriteString(":ca")
 		}
+	}
+	b.WriteByte('|')
+	if forceAttemptHTTP2 {
+		b.WriteByte('2')
+	} else {
+		b.WriteByte('1')
 	}
 	return b.String()
 }

@@ -220,14 +220,14 @@ func handleNotFoundRequest(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
-func handleProxyTransport(handler Handler) (http.RoundTripper, error) {
+func handleProxyTransport(handler Handler, forceAttemptHTTP2 bool) (http.RoundTripper, error) {
 	base := http.DefaultTransport.(*http.Transport).Clone()
 	base.DisableKeepAlives = false
 	base.MaxIdleConns = defaultMaxIdleConns
 	base.MaxIdleConnsPerHost = defaultMaxIdleConnsPerHost
 	base.IdleConnTimeout = defaultIdleConnTimeout
 	base.MaxConnsPerHost = defaultMaxConnsPerHost
-	base.ForceAttemptHTTP2 = true
+	base.ForceAttemptHTTP2 = forceAttemptHTTP2
 	base.TLSHandshakeTimeout = 10 * time.Second
 	base.ExpectContinueTimeout = 1 * time.Second
 	addresses := append([]string(nil), handler.IPv4Addresses...)
