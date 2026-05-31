@@ -117,6 +117,8 @@ type Route struct {
 	Browse bool `yaml:"browse,omitempty" json:"browse,omitempty"`
 	// Insecure enables endpoint certificate pinning for https/wss handlers.
 	Insecure bool `yaml:"insecure,omitempty" json:"insecure,omitempty"`
+	// AbortiveClose makes backend sockets use abortive close (RST) instead of graceful FIN.
+	AbortiveClose bool `yaml:"abortive_close,omitempty" json:"abortive_close,omitempty"`
 	// TrustedCA identifies a PEM CA bundle that should verify this handler TLS server.
 	TrustedCA *TrustedCA `yaml:"trusted_ca,omitempty" json:"trusted_ca,omitempty"`
 }
@@ -632,6 +634,9 @@ func Validate(cfg *Config) error {
 			if err != nil || u.Scheme == "" || u.Host == "" {
 				return fmt.Errorf("invalid redirect for path %q: %q", prefix, r.Redirect)
 			}
+			if r.AbortiveClose {
+				return fmt.Errorf("abortive_close cannot be used with redirect for path %q", prefix)
+			}
 		}
 
 		for _, raw := range r.AllowedIPv4 {
@@ -673,6 +678,10 @@ func Validate(cfg *Config) error {
 
 		if r.Browse && scheme != "file" {
 			return fmt.Errorf("browse is supported only for file handlers for path %q", prefix)
+		}
+
+		if r.AbortiveClose && scheme == "file" {
+			return fmt.Errorf("abortive_close is not supported for file handlers for path %q", prefix)
 		}
 
 		if r.RewriteBaseHref != nil {

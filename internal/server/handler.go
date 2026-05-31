@@ -220,6 +220,17 @@ func handleNotFoundRequest(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
+type abortiveCloseConn struct {
+	net.Conn
+}
+
+func (c *abortiveCloseConn) Close() error {
+	if tcpConn, ok := c.Conn.(*net.TCPConn); ok {
+		_ = tcpConn.SetLinger(0)
+	}
+	return c.Conn.Close()
+}
+
 func handleProxyTransport(handler Handler, forceAttemptHTTP2 bool) (http.RoundTripper, error) {
 	base := http.DefaultTransport.(*http.Transport).Clone()
 	base.DisableKeepAlives = false
@@ -245,6 +256,9 @@ func handleProxyTransport(handler Handler, forceAttemptHTTP2 bool) (http.RoundTr
 			addr := net.JoinHostPort(rawIP, port)
 			conn, err := dialer.DialContext(ctx, network, addr)
 			if err == nil {
+				if handler.AbortiveClose {
+					return &abortiveCloseConn{Conn: conn}, nil
+				}
 				return conn, nil
 			}
 			if firstErr == nil {

@@ -64,6 +64,11 @@ func TestTransportCacheKey_DiffersByTLSAndTarget(t *testing.T) {
 	if transportCacheKey(a, true) == transportCacheKey(a, false) {
 		t.Fatal("cache key should differ by HTTP/2 setting")
 	}
+	d := a
+	d.AbortiveClose = true
+	if transportCacheKey(a, true) == transportCacheKey(d, true) {
+		t.Fatal("cache key should differ by abortive_close setting")
+	}
 }
 
 func TestBuildRouteProxies_NormalizesTrailingSlashForMatching(t *testing.T) {

@@ -36,6 +36,7 @@ type Handler struct {
 	Path          string     `json:"path,omitempty"`
 	RawQuery      string     `json:"raw_query,omitempty"`
 	IPv4Addresses []string   `json:"ipv4_addresses"`
+	AbortiveClose bool       `json:"abortive_close,omitempty"`
 	TrustedCA     *TrustedCA `json:"trusted_ca,omitempty"`
 }
 
@@ -154,6 +155,9 @@ func Validate(cfg *Config) error {
 			}
 			if len(handler.IPv4Addresses) != 0 {
 				return fmt.Errorf("file handler ipv4_addresses must be empty for path %q", prefix)
+			}
+			if handler.AbortiveClose {
+				return fmt.Errorf("abortive_close is not supported for file handlers for path %q", prefix)
 			}
 			if handler.TrustedCA != nil {
 				return fmt.Errorf("trusted_ca is not supported for file handlers for path %q", prefix)

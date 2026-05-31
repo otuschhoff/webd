@@ -378,7 +378,7 @@ func buildRuntimeConfig(cfg *Config, uid, gid int, stagedCAs map[string]*stagedT
 
 		var wsHandler *server.Handler
 		if wsURL != "" {
-			wsh, wsErr := buildRuntimeHandlerForURL(wsURL, route.Insecure, route.TrustedCA, uid, gid, stagedCAs)
+			wsh, wsErr := buildRuntimeHandlerForURL(wsURL, route.Insecure, route.AbortiveClose, route.TrustedCA, uid, gid, stagedCAs)
 			if wsErr != nil {
 				return nil, fmt.Errorf("route path=%q websocket=%q: %w", route.Path, wsURL, wsErr)
 			}
@@ -407,10 +407,10 @@ type stagedTrustedCA struct {
 }
 
 func buildRuntimeHandler(route Route, uid, gid int, stagedCAs map[string]*stagedTrustedCA) (server.Handler, error) {
-	return buildRuntimeHandlerForURL(route.Handler, route.Insecure, route.TrustedCA, uid, gid, stagedCAs)
+	return buildRuntimeHandlerForURL(route.Handler, route.Insecure, route.AbortiveClose, route.TrustedCA, uid, gid, stagedCAs)
 }
 
-func buildRuntimeHandlerForURL(handlerURL string, insecure bool, trustedCA *TrustedCA, uid, gid int, stagedCAs map[string]*stagedTrustedCA) (server.Handler, error) {
+func buildRuntimeHandlerForURL(handlerURL string, insecure bool, abortiveClose bool, trustedCA *TrustedCA, uid, gid int, stagedCAs map[string]*stagedTrustedCA) (server.Handler, error) {
 	u, err := url.Parse(handlerURL)
 	if err != nil || u.Scheme == "" {
 		return server.Handler{}, fmt.Errorf("invalid handler URL")
@@ -427,6 +427,9 @@ func buildRuntimeHandlerForURL(handlerURL string, insecure bool, trustedCA *Trus
 		}
 		if trustedCA != nil {
 			return server.Handler{}, fmt.Errorf("trusted_ca is not supported for file handlers")
+		}
+		if abortiveClose {
+			return server.Handler{}, fmt.Errorf("abortive_close is not supported for file handlers")
 		}
 		return server.Handler{
 			Protocol: "file",
@@ -468,6 +471,7 @@ func buildRuntimeHandlerForURL(handlerURL string, insecure bool, trustedCA *Trus
 		Path:          u.Path,
 		RawQuery:      u.RawQuery,
 		IPv4Addresses: resolvedIPs,
+		AbortiveClose: abortiveClose,
 	}
 	if trustedCA != nil {
 		// Explicit trusted_ca: always hard-fail. Silently falling back to

@@ -70,6 +70,9 @@ const sourceConfigSchemaJSON = `{
           "insecure": {
             "type": "boolean"
           },
+          "abortive_close": {
+            "type": "boolean"
+          },
           "trusted_ca": {
             "type": "object",
             "additionalProperties": false,
@@ -206,6 +209,9 @@ const runtimeConfigSchemaJSON = `{
                   "minLength": 1
                 }
               },
+              "abortive_close": {
+                "type": "boolean"
+              },
               "trusted_ca": {
                 "type": "object",
                 "additionalProperties": false,
@@ -275,6 +281,9 @@ const runtimeConfigSchemaJSON = `{
                   "type": "string",
                   "minLength": 1
                 }
+              },
+              "abortive_close": {
+                "type": "boolean"
               },
               "trusted_ca": {
                 "type": "object",

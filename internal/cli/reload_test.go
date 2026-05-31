@@ -58,7 +58,7 @@ func TestBuildRuntimeHandlerForURL_HTTPNoTrustStaging(t *testing.T) {
 		"http://127.0.0.1/",
 		"ws://127.0.0.1/",
 	} {
-		h, err := buildRuntimeHandlerForURL(rawURL, false, nil, 0, 0, stagedCAs)
+		h, err := buildRuntimeHandlerForURL(rawURL, false, false, nil, 0, 0, stagedCAs)
 		if err != nil {
 			t.Fatalf("buildRuntimeHandlerForURL(%q): unexpected error: %v", rawURL, err)
 		}
@@ -95,6 +95,7 @@ func TestBuildRuntimeHandlerForURL_ExplicitTrustedCAHardFails(t *testing.T) {
 	_, err := buildRuntimeHandlerForURL(
 		"https://127.0.0.1:1/",
 		false,
+		false,
 		trustedCA,
 		0, 0,
 		stagedCAs,
@@ -123,6 +124,7 @@ func TestBuildRuntimeHandlerForURL_InsecureLoopbackLenient(t *testing.T) {
 	h, err := buildRuntimeHandlerForURL(
 		"https://127.0.0.1:1/",
 		true, // insecure / cert-pin
+		false,
 		nil,
 		0, 0,
 		stagedCAs,
@@ -153,6 +155,7 @@ func TestBuildRuntimeHandlerForURL_InsecureNonLoopbackHardFails(t *testing.T) {
 	_, err := buildRuntimeHandlerForURL(
 		"https://192.0.2.1:443/",
 		true, // insecure / cert-pin
+		false,
 		nil,
 		0, 0,
 		stagedCAs,
@@ -404,7 +407,7 @@ func TestLoopbackInsecure_SelfSignedCert(t *testing.T) {
 	stagedCAs := make(map[string]*stagedTrustedCA)
 	rawURL := fmt.Sprintf("https://127.0.0.1:%d/", port)
 
-	h, err := buildRuntimeHandlerForURL(rawURL, true, nil, 0, 0, stagedCAs)
+	h, err := buildRuntimeHandlerForURL(rawURL, true, false, nil, 0, 0, stagedCAs)
 	if err != nil {
 		t.Fatalf("loopback insecure with self-signed cert should not fail: %v", err)
 	}
@@ -418,7 +421,7 @@ func TestLoopbackInsecure_SelfSignedCert(t *testing.T) {
 func TestLoopbackAutoDiscovery_NotReachable(t *testing.T) {
 	stagedCAs := make(map[string]*stagedTrustedCA)
 
-	h, err := buildRuntimeHandlerForURL("https://127.0.0.1:1/", false, nil, 0, 0, stagedCAs)
+	h, err := buildRuntimeHandlerForURL("https://127.0.0.1:1/", false, false, nil, 0, 0, stagedCAs)
 	if err != nil {
 		t.Fatalf("unreachable loopback auto-discovery should not fail: %v", err)
 	}
@@ -438,7 +441,7 @@ func TestLoopbackAutoDiscovery_ExpiredCert(t *testing.T) {
 	stagedCAs := make(map[string]*stagedTrustedCA)
 	rawURL := fmt.Sprintf("https://127.0.0.1:%d/", port)
 
-	h, err := buildRuntimeHandlerForURL(rawURL, false, nil, 0, 0, stagedCAs)
+	h, err := buildRuntimeHandlerForURL(rawURL, false, false, nil, 0, 0, stagedCAs)
 	if err != nil {
 		t.Fatalf("loopback auto-discovery with expired cert should not fail: %v", err)
 	}
@@ -460,7 +463,7 @@ func TestLoopbackAutoDiscovery_WrongHostnameCert(t *testing.T) {
 	stagedCAs := make(map[string]*stagedTrustedCA)
 	rawURL := fmt.Sprintf("https://127.0.0.1:%d/", port)
 
-	h, err := buildRuntimeHandlerForURL(rawURL, false, nil, 0, 0, stagedCAs)
+	h, err := buildRuntimeHandlerForURL(rawURL, false, false, nil, 0, 0, stagedCAs)
 	if err != nil {
 		t.Fatalf("loopback auto-discovery with wrong-hostname cert should not fail: %v", err)
 	}
@@ -481,7 +484,7 @@ func TestLoopbackInsecure_ExpiredCert(t *testing.T) {
 	stagedCAs := make(map[string]*stagedTrustedCA)
 	rawURL := fmt.Sprintf("https://127.0.0.1:%d/", port)
 
-	_, err := buildRuntimeHandlerForURL(rawURL, true, nil, 0, 0, stagedCAs)
+	_, err := buildRuntimeHandlerForURL(rawURL, true, false, nil, 0, 0, stagedCAs)
 	if err != nil {
 		t.Fatalf("loopback insecure with expired cert should not fail: %v", err)
 	}
@@ -499,8 +502,19 @@ func TestLoopbackInsecure_WrongHostnameCert(t *testing.T) {
 	stagedCAs := make(map[string]*stagedTrustedCA)
 	rawURL := fmt.Sprintf("https://127.0.0.1:%d/", port)
 
-	_, err := buildRuntimeHandlerForURL(rawURL, true, nil, 0, 0, stagedCAs)
+	_, err := buildRuntimeHandlerForURL(rawURL, true, false, nil, 0, 0, stagedCAs)
 	if err != nil {
 		t.Fatalf("loopback insecure with wrong-hostname cert should not fail: %v", err)
+	}
+}
+
+func TestBuildRuntimeHandlerForURL_AbortiveClosePropagated(t *testing.T) {
+	stagedCAs := make(map[string]*stagedTrustedCA)
+	h, err := buildRuntimeHandlerForURL("http://127.0.0.1:8080/", false, true, nil, 0, 0, stagedCAs)
+	if err != nil {
+		t.Fatalf("buildRuntimeHandlerForURL(): unexpected error: %v", err)
+	}
+	if !h.AbortiveClose {
+		t.Fatal("AbortiveClose = false, want true")
 	}
 }

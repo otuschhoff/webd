@@ -444,6 +444,12 @@ func transportCacheKey(handler Handler, forceAttemptHTTP2 bool) string {
 		}
 	}
 	b.WriteByte('|')
+	if handler.AbortiveClose {
+		b.WriteString("rst")
+	} else {
+		b.WriteString("fin")
+	}
+	b.WriteByte('|')
 	if forceAttemptHTTP2 {
 		b.WriteByte('2')
 	} else {

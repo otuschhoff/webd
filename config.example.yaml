@@ -22,6 +22,7 @@ routes:
   # Example WebSocket handler over TLS.
   # - path: /websocket/
   #   handler: wss://server.eu.example.com:9000/websocket/
+  #   abortive_close: true
   #   trusted_ca:
   #     name: server-ws
   #     cert_path: /etc/pki/ca-trust/source/anchors/server-ws.crt

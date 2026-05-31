@@ -146,6 +146,9 @@ Rules:
 - `insecure` is optional and supported only for `https` and `wss` handlers.
 - If `insecure: true` is set, `webctl reload` fetches the endpoint’s current leaf certificate and pins that exact certificate for the route/handler.
 - `insecure: true` does not disable TLS verification; `webd` still checks hostname, certificate validity period, and exact leaf-cert match.
+- `abortive_close` is optional and supported only for proxy handlers (`http`, `https`, `ws`, `wss`).
+- If `abortive_close: true` is set, backend sockets for the route use abortive close (RST) instead of graceful FIN when closed.
+- `abortive_close` cannot be used with `redirect` or `file://` handlers.
 - For self-signed certificates, `webctl reload` accepts single-cert bundles; multi-certificate bundles must be ordered (leaf, intermediates, root) per X.509 chain standards.
 - When verifying a loopback IP backend (127.0.0.1 or ::1) with TLS, if hostname verification fails, `webd` retries against `localhost`, allowing local backends with `localhost`-signed certificates to function.
 - `insecure` cannot be used with `trusted_ca`.
@@ -366,6 +369,18 @@ routes:
       - 198.51.100.10
       - 198.51.100.11
       - 198.51.100.20-198.51.100.30
+
+  - path: /
+    handler: http://127.0.0.1:3000
+```
+
+Enable abortive close (RST) for backend connections on a route:
+
+```yaml
+routes:
+  - path: /ws/
+    handler: ws://127.0.0.1:3334/
+    abortive_close: true
 
   - path: /
     handler: http://127.0.0.1:3000
