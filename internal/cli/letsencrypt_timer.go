@@ -412,14 +412,13 @@ Description=Periodic Let's Encrypt renewal threshold check for webd
 Documentation=man:systemd.timer(5)
 
 [Timer]
-OnBootSec=10m
-OnUnitActiveSec=%ds
+OnCalendar=daily
 Persistent=true
 Unit=%s
 
 [Install]
 WantedBy=timers.target
-`, intervalSeconds, letsEncryptTimerServiceName)
+`, letsEncryptTimerServiceName)
 }
 
 func parseLetsEncryptTimerDuration(input string) (time.Duration, error) {
