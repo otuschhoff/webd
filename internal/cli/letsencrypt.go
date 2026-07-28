@@ -315,6 +315,8 @@ func ensureChallengeDir(path string, uid, gid int) error {
 	return nil
 }
 
+var localFQDNResolver = localFQDN
+
 func localFQDN() (string, error) {
 	hostname, err := os.Hostname()
 	if err != nil {

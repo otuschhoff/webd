@@ -133,7 +133,21 @@ type Config struct {
 func Load(path string) (*Config, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return buildAutoConfig(), nil
+		}
 		return nil, fmt.Errorf("read config %s: %w", path, err)
+	}
+	if len(strings.TrimSpace(string(b))) == 0 {
+		return buildAutoConfig(), nil
+	}
+
+	var cfg Config
+	if err := yaml.Unmarshal(b, &cfg); err != nil {
+		return nil, fmt.Errorf("parse config %s as yaml: %w", path, err)
+	}
+	if len(cfg.Routes) == 0 {
+		return buildAutoConfig(), nil
 	}
 
 	var sourceRaw any
@@ -142,11 +156,6 @@ func Load(path string) (*Config, error) {
 	}
 	if err := app.ValidateSourceConfig(normalizeYAMLValue(sourceRaw)); err != nil {
 		return nil, fmt.Errorf("validate config %s against json schema: %w", path, err)
-	}
-
-	var cfg Config
-	if err := yaml.Unmarshal(b, &cfg); err != nil {
-		return nil, fmt.Errorf("parse config %s as yaml: %w", path, err)
 	}
 
 	if err := expandRoutePathGlobs(&cfg); err != nil {
@@ -161,6 +170,27 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+func buildAutoConfig() *Config {
+	fqdn, err := localFQDNResolver()
+	if err != nil || strings.TrimSpace(fqdn) == "" {
+		fqdn = "localhost"
+	}
+	routeHost := redirectHostFromFQDN(fqdn)
+	return &Config{Routes: []Route{{Path: "/", Redirect: "https://" + routeHost}}}
+}
+
+func redirectHostFromFQDN(fqdn string) string {
+	clean := strings.TrimSpace(strings.TrimSuffix(fqdn, "."))
+	if clean == "" {
+		return "localhost"
+	}
+	parts := strings.Split(clean, ".")
+	if len(parts) <= 1 {
+		return clean
+	}
+	return strings.Join(parts[1:], ".")
 }
 
 const maxExpandedPathVariants = 1024
