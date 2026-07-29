@@ -880,9 +880,6 @@ func replaceOrInsertHrefAttr(baseTag, href string) string {
 }
 
 func rewriteLocationToRequestHTTPS(location string, req *http.Request, handlerHost string) string {
-	if req == nil {
-		return location
-	}
 	parsed, err := url.Parse(location)
 	if err != nil {
 		return location
@@ -903,6 +900,10 @@ func rewriteLocationToRequestHTTPS(location string, req *http.Request, handlerHo
 			path += "#" + parsed.Fragment
 		}
 		return path
+	}
+
+	if req == nil {
+		return location
 	}
 
 	requestHost := requestFQDN(req.Host)

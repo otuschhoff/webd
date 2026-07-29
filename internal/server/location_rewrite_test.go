@@ -23,3 +23,10 @@ func TestRewriteLocationToRequestHTTPS_PreservesQueryAndFragment(t *testing.T) {
 		t.Fatalf("rewriteLocationToRequestHTTPS() = %q, want %q", got, "/polarion/?a=1#frag")
 	}
 }
+
+func TestRewriteLocationToRequestHTTPS_WithoutRequestContextSanitizesAbsoluteRedirect(t *testing.T) {
+	got := rewriteLocationToRequestHTTPS("https://backend.example.com/polarion/", nil, "backend.example.com")
+	if got != "/polarion/" {
+		t.Fatalf("rewriteLocationToRequestHTTPS() = %q, want %q", got, "/polarion/")
+	}
+}
