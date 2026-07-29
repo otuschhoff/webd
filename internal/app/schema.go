@@ -93,18 +93,12 @@ const sourceConfigSchemaJSON = `{
             }
           }
         },
-        "oneOf": [
+        "anyOf": [
           {
-            "required": ["handler"],
-            "not": {
-              "required": ["redirect"]
-            }
+            "required": ["handler"]
           },
           {
-            "required": ["redirect"],
-            "not": {
-              "required": ["handler"]
-            }
+            "required": ["redirect"]
           }
         ]
       }
@@ -332,18 +326,12 @@ const runtimeConfigSchemaJSON = `{
             ]
           }
         },
-        "oneOf": [
+        "anyOf": [
           {
-            "required": ["handler"],
-            "not": {
-              "required": ["redirect"]
-            }
+            "required": ["handler"]
           },
           {
-            "required": ["redirect"],
-            "not": {
-              "required": ["handler"]
-            }
+            "required": ["redirect"]
           }
         ]
       }
