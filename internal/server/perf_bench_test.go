@@ -103,7 +103,7 @@ func BenchmarkConfigureRouteProxyDirector(b *testing.B) {
 		RawPath:  "/base",
 		RawQuery: "target=1",
 	}
-	configureRouteProxyDirector(proxy, target, "/apps/demo")
+	configureRouteProxyDirector(proxy, target, "/apps/demo", "")
 
 	b.Run("no_existing_forwarded", func(b *testing.B) {
 		req := &http.Request{

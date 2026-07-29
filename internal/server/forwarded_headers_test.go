@@ -70,7 +70,7 @@ func TestHandleProxyForwardedHeaders_AppendsForwardedHeader(t *testing.T) {
 func TestConfigureRouteProxyDirector_SetsForwardedPrefix(t *testing.T) {
 	proxy := &httputil.ReverseProxy{}
 	target := &url.URL{Scheme: "http", Host: "backend.internal:8080", Path: "/base"}
-	configureRouteProxyDirector(proxy, target, "/apps/demo")
+	configureRouteProxyDirector(proxy, target, "/apps/demo", "")
 
 	req := &http.Request{
 		Header:     make(http.Header),

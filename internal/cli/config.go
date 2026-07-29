@@ -113,6 +113,8 @@ type Route struct {
 	// RewriteBaseHref controls HTML <base href> normalization for proxied handlers.
 	// Default behavior is enabled; set to false to disable.
 	RewriteBaseHref *bool `yaml:"rewrite_base_href,omitempty" json:"rewrite_base_href,omitempty"`
+	// RewriteHost overrides the Host header sent to the backend for proxied handlers.
+	RewriteHost string `yaml:"rewrite_host,omitempty" json:"rewrite_host,omitempty"`
 	// Browse enables directory listing when a file:// handler maps to a directory path.
 	Browse bool `yaml:"browse,omitempty" json:"browse,omitempty"`
 	// Insecure enables endpoint certificate pinning for https/wss handlers.
@@ -736,6 +738,21 @@ func Validate(cfg *Config) error {
 			}
 			if _, err := regexp.Compile(normalizeRegexPattern(match)); err != nil {
 				return fmt.Errorf("invalid rewrite_location.match regex for path %q: %w", prefix, err)
+			}
+		}
+
+		if rewriteHost := strings.TrimSpace(r.RewriteHost); rewriteHost != "" {
+			if hasRedirect {
+				return fmt.Errorf("rewrite_host cannot be used with redirect for path %q", prefix)
+			}
+			if scheme == "file" {
+				return fmt.Errorf("rewrite_host is not supported for file handlers for path %q", prefix)
+			}
+			if strings.Contains(rewriteHost, "/") || strings.Contains(rewriteHost, "\\") {
+				return fmt.Errorf("rewrite_host must be a host header value without path separators for path %q", prefix)
+			}
+			if strings.HasSuffix(rewriteHost, ":") {
+				return fmt.Errorf("rewrite_host must not end with ':' for path %q", prefix)
 			}
 		}
 

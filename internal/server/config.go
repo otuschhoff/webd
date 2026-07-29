@@ -50,6 +50,7 @@ type Route struct {
 	WebsocketHandler  *Handler         `json:"websocket_handler,omitempty"`
 	RewriteLocation   *RewriteLocation `json:"rewrite_location,omitempty"`
 	RewriteBaseHref   *bool            `json:"rewrite_base_href,omitempty"`
+	RewriteHost       string           `json:"rewrite_host,omitempty"`
 }
 
 // Config is the runtime JSON configuration consumed by the webd daemon.
@@ -209,6 +210,14 @@ func Validate(cfg *Config) error {
 			}
 			if _, err := regexp.Compile(normalizeRegexPattern(match)); err != nil {
 				return fmt.Errorf("invalid rewrite_location.match regex for path %q: %w", prefix, err)
+			}
+		}
+		if rewriteHost := strings.TrimSpace(r.RewriteHost); rewriteHost != "" {
+			if strings.Contains(rewriteHost, "/") || strings.Contains(rewriteHost, "\\") {
+				return fmt.Errorf("rewrite_host must be a host header value without path separators for path %q", prefix)
+			}
+			if strings.HasSuffix(rewriteHost, ":") {
+				return fmt.Errorf("rewrite_host must not end with ':' for path %q", prefix)
 			}
 		}
 

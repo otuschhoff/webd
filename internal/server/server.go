@@ -277,7 +277,7 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 
 		proxy := httputil.NewSingleHostReverseProxy(targetURL)
 		proxy.BufferPool = reverseProxyBufferPool
-		configureRouteProxyDirector(proxy, targetURL, prefix)
+		configureRouteProxyDirector(proxy, targetURL, prefix, r.RewriteHost)
 
 		var locationRewriteRe *regexp.Regexp
 		locationReplace := ""
@@ -322,7 +322,7 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			wsTarget := wsTargetURL.String()
 			wsProxy = httputil.NewSingleHostReverseProxy(wsTargetURL)
 			wsProxy.BufferPool = reverseProxyBufferPool
-			configureRouteProxyDirector(wsProxy, wsTargetURL, prefix)
+			configureRouteProxyDirector(wsProxy, wsTargetURL, prefix, r.RewriteHost)
 			configureLocationHeaderRewrite(wsProxy, locationRewriteRe, locationReplace, rewriteBaseHref, prefix, wsTargetURL.Path)
 			wsTransport, wsTransportErr := getOrCreateRouteTransport(transportCache, wsCfg, false)
 			if wsTransportErr != nil {
@@ -567,7 +567,7 @@ func usesTLSHandler(protocol string) bool {
 	}
 }
 
-func configureRouteProxyDirector(proxy *httputil.ReverseProxy, target *url.URL, routePrefix string) {
+func configureRouteProxyDirector(proxy *httputil.ReverseProxy, target *url.URL, routePrefix string, rewriteHost string) {
 	targetQuery := target.RawQuery
 	normalizedPrefix := normalizeRoutePrefix(routePrefix)
 	if normalizedPrefix == "/" {
@@ -597,6 +597,9 @@ func configureRouteProxyDirector(proxy *httputil.ReverseProxy, target *url.URL, 
 
 		if _, ok := req.Header["User-Agent"]; !ok {
 			req.Header.Set("User-Agent", "")
+		}
+		if hostOverride := strings.TrimSpace(rewriteHost); hostOverride != "" {
+			req.Host = hostOverride
 		}
 		handleProxyForwardedHeaders(req, forwardedPrefix)
 	}

@@ -393,6 +393,7 @@ func buildRuntimeConfig(cfg *Config, uid, gid int, stagedCAs map[string]*stagedT
 			WebsocketHandler:  wsHandler,
 			RewriteLocation:   rewriteLocation,
 			RewriteBaseHref:   rewriteBaseHref,
+			RewriteHost:       strings.TrimSpace(route.RewriteHost),
 		})
 	}
 	return resolved, nil

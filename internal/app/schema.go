@@ -53,6 +53,14 @@ const sourceConfigSchemaJSON = `{
           "rewrite_base_href": {
             "type": "boolean"
           },
+          "rewrite_host": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rewrite_host": {
+            "type": "string",
+            "minLength": 1
+          },
           "redirect": {
             "type": "string",
             "pattern": "^[A-Za-z][A-Za-z0-9+.-]*://.+"
