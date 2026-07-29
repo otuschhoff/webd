@@ -750,9 +750,10 @@ func Validate(cfg *Config) error {
 
 		if rewriteHost := strings.TrimSpace(r.RewriteHost); rewriteHost != "" {
 			if hasRedirect {
-				return fmt.Errorf("rewrite_host cannot be used with redirect for path %q", prefix)
-			}
-			if scheme == "file" {
+				if scheme == "" {
+					scheme = "http"
+				}
+			} else if scheme == "file" {
 				return fmt.Errorf("rewrite_host is not supported for file handlers for path %q", prefix)
 			}
 			if strings.Contains(rewriteHost, "/") || strings.Contains(rewriteHost, "\\") {
