@@ -251,17 +251,20 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 		prefix := normalizeRoutePrefix(r.Path)
 		allowedIPv4Ranges := normalizeIPv4Ranges(r.AllowedIPv4Ranges)
 
-		if strings.TrimSpace(r.Redirect) != "" {
+		hasRedirect := strings.TrimSpace(r.Redirect) != ""
+		if hasRedirect {
 			routes = append(routes, routeProxy{
 				prefix:            prefix,
 				redirectTarget:    strings.TrimSpace(r.Redirect),
 				allowedIPv4Ranges: allowedIPv4Ranges,
 			})
-			continue
 		}
 
 		if r.Handler == nil {
-			return nil, fmt.Errorf("route for path %q has no handler", prefix)
+			if !hasRedirect {
+				return nil, fmt.Errorf("route for path %q has no handler", prefix)
+			}
+			continue
 		}
 		handlerCfg := *r.Handler
 		if strings.EqualFold(strings.TrimSpace(handlerCfg.Protocol), "file") {

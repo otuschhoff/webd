@@ -71,6 +71,30 @@ func TestRouteTrieMatch_RedirectAndFallbackRoutesCoexist(t *testing.T) {
 	}
 }
 
+func TestBuildRouteProxies_RedirectAndHandlerCoexistForSamePrefix(t *testing.T) {
+	cfg := &Config{Routes: []Route{{
+		Path:     "/",
+		Redirect: "/polarion",
+		Handler:  &Handler{Protocol: "http", Hostname: "example.com", Port: 80},
+	}}}
+
+	routes, err := buildRouteProxies(cfg, nil)
+	if err != nil {
+		t.Fatalf("buildRouteProxies() error = %v", err)
+	}
+
+	matcher := newRouteSet(routes).matcher
+	rootRoute := matcher.match("/")
+	if rootRoute == nil || rootRoute.redirectTarget != "/polarion" {
+		t.Fatalf("match(/) = %#v, want redirect route for /", rootRoute)
+	}
+
+	fallbackRoute := matcher.match("/foo")
+	if fallbackRoute == nil || fallbackRoute.proxy == nil {
+		t.Fatalf("match(/foo) = %#v, want fallback proxy route", fallbackRoute)
+	}
+}
+
 func TestTransportCacheKey_DiffersByTLSAndTarget(t *testing.T) {
 	a := Handler{Protocol: "https", Hostname: "api.local", Port: 443, IPv4Addresses: []string{"127.0.0.1"}}
 	b := Handler{Protocol: "https", Hostname: "api.local", Port: 443, IPv4Addresses: []string{"127.0.0.2"}}
