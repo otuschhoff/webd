@@ -112,9 +112,6 @@ func Validate(cfg *Config) error {
 		if !hasHandler && !hasRedirect {
 			return fmt.Errorf("either handler or redirect must be set for path %q", prefix)
 		}
-		if hasHandler && hasRedirect {
-			return fmt.Errorf("handler and redirect cannot both be set for path %q", prefix)
-		}
 		if hasRedirect {
 			u, err := url.Parse(redirect)
 			if err != nil {
