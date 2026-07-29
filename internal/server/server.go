@@ -888,7 +888,7 @@ func rewriteLocationToRequestHTTPS(location string, req *http.Request, handlerHo
 		return location
 	}
 
-	if handlerHost != "" && parsed.Host != "" && strings.EqualFold(parsed.Host, handlerHost) {
+	if handlerHost != "" && parsed.Host != "" && sameHostName(parsed.Hostname(), handlerHost) {
 		path := parsed.EscapedPath()
 		if path == "" {
 			path = "/"
@@ -914,6 +914,28 @@ func rewriteLocationToRequestHTTPS(location string, req *http.Request, handlerHo
 	parsed.Scheme = "https"
 	parsed.Host = requestHost
 	return parsed.String()
+}
+
+func sameHostName(left, right string) bool {
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+	if left == "" || right == "" {
+		return false
+	}
+	leftHost := strings.TrimPrefix(left, "[")
+	leftHost = strings.TrimSuffix(leftHost, "]")
+	rightHost := strings.TrimPrefix(right, "[")
+	rightHost = strings.TrimSuffix(rightHost, "]")
+	if leftHost == "" || rightHost == "" {
+		return false
+	}
+	if colon := strings.LastIndex(leftHost, ":"); colon != -1 && !strings.Contains(leftHost[:colon], ":") {
+		leftHost = leftHost[:colon]
+	}
+	if colon := strings.LastIndex(rightHost, ":"); colon != -1 && !strings.Contains(rightHost[:colon], ":") {
+		rightHost = rightHost[:colon]
+	}
+	return strings.EqualFold(leftHost, rightHost)
 }
 
 func requestFQDN(host string) string {

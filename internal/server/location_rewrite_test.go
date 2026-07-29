@@ -30,3 +30,12 @@ func TestRewriteLocationToRequestHTTPS_WithoutRequestContextSanitizesAbsoluteRed
 		t.Fatalf("rewriteLocationToRequestHTTPS() = %q, want %q", got, "/polarion/")
 	}
 }
+
+func TestRewriteLocationToRequestHTTPS_HandlesHandlerHostWithPort(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "https://frontend.example.com/polarion", nil)
+
+	got := rewriteLocationToRequestHTTPS("https://backend.example.com/polarion/", req, "backend.example.com:443")
+	if got != "/polarion/" {
+		t.Fatalf("rewriteLocationToRequestHTTPS() = %q, want %q", got, "/polarion/")
+	}
+}
