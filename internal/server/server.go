@@ -299,7 +299,7 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 		if r.RewriteBaseHref != nil {
 			rewriteBaseHref = *r.RewriteBaseHref
 		}
-		configureLocationHeaderRewrite(proxy, locationRewriteRe, locationReplace, rewriteBaseHref, prefix, targetURL.Path)
+		configureLocationHeaderRewrite(proxy, locationRewriteRe, locationReplace, rewriteBaseHref, prefix, targetURL.Path, targetURL.Host)
 		transport, transportErr := getOrCreateRouteTransport(transportCache, handlerCfg, true)
 		if transportErr != nil {
 			return nil, fmt.Errorf("configure transport for path %q: %w", prefix, transportErr)
@@ -327,7 +327,7 @@ func buildRouteProxies(cfg *Config, errLog *log.Logger) ([]routeProxy, error) {
 			wsProxy = httputil.NewSingleHostReverseProxy(wsTargetURL)
 			wsProxy.BufferPool = reverseProxyBufferPool
 			configureRouteProxyDirector(wsProxy, wsTargetURL, prefix, r.RewriteHost)
-			configureLocationHeaderRewrite(wsProxy, locationRewriteRe, locationReplace, rewriteBaseHref, prefix, wsTargetURL.Path)
+			configureLocationHeaderRewrite(wsProxy, locationRewriteRe, locationReplace, rewriteBaseHref, prefix, wsTargetURL.Path, wsTargetURL.Host)
 			wsTransport, wsTransportErr := getOrCreateRouteTransport(transportCache, wsCfg, false)
 			if wsTransportErr != nil {
 				return nil, fmt.Errorf("configure websocket transport for path %q: %w", prefix, wsTransportErr)
@@ -690,7 +690,7 @@ func joinProxyPath(base, suffix string) string {
 	return base + suffix
 }
 
-func configureLocationHeaderRewrite(proxy *httputil.ReverseProxy, matchRe *regexp.Regexp, replace string, rewriteBaseHref bool, routePrefix, handlerBasePath string) {
+func configureLocationHeaderRewrite(proxy *httputil.ReverseProxy, matchRe *regexp.Regexp, replace string, rewriteBaseHref bool, routePrefix, handlerBasePath, handlerHost string) {
 	proxy.ModifyResponse = func(resp *http.Response) error {
 		if resp == nil {
 			return nil
@@ -699,7 +699,7 @@ func configureLocationHeaderRewrite(proxy *httputil.ReverseProxy, matchRe *regex
 		if location == "" {
 			// no location header rewrite needed
 		} else {
-			rewritten := rewriteLocationToRequestHTTPS(location, resp.Request)
+			rewritten := rewriteLocationToRequestHTTPS(location, resp.Request, handlerHost)
 			if matchRe != nil {
 				rewritten = matchRe.ReplaceAllString(rewritten, replace)
 			}
@@ -879,7 +879,7 @@ func replaceOrInsertHrefAttr(baseTag, href string) string {
 	return trimmed + " href=" + hrefQuoted + ">"
 }
 
-func rewriteLocationToRequestHTTPS(location string, req *http.Request) string {
+func rewriteLocationToRequestHTTPS(location string, req *http.Request, handlerHost string) string {
 	if req == nil {
 		return location
 	}
@@ -889,6 +889,20 @@ func rewriteLocationToRequestHTTPS(location string, req *http.Request) string {
 	}
 	if parsed.Host == "" && parsed.Scheme == "" && !strings.HasPrefix(location, "//") {
 		return location
+	}
+
+	if handlerHost != "" && parsed.Host != "" && strings.EqualFold(parsed.Host, handlerHost) {
+		path := parsed.EscapedPath()
+		if path == "" {
+			path = "/"
+		}
+		if parsed.RawQuery != "" {
+			path += "?" + parsed.RawQuery
+		}
+		if parsed.Fragment != "" {
+			path += "#" + parsed.Fragment
+		}
+		return path
 	}
 
 	requestHost := requestFQDN(req.Host)
