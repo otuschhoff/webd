@@ -367,7 +367,7 @@ func newRouteSet(routes []routeProxy) routeSet {
 func buildRouteTrie(routes []routeProxy) *routeTrieNode {
 	root := &routeTrieNode{children: make(map[byte]*routeTrieNode)}
 	for i := range routes {
-		prefix := routes[i].prefix
+		prefix := normalizeRoutePrefix(routes[i].prefix)
 		node := root
 		for j := 0; j < len(prefix); j++ {
 			ch := prefix[j]
@@ -379,10 +379,17 @@ func buildRouteTrie(routes []routeProxy) *routeTrieNode {
 			node = next
 		}
 		route := &routes[i]
-		if node.route == nil || node.route.redirectTarget == "" || route.redirectTarget != "" {
+		if node.route == nil {
 			node.route = route
-		} else if node.fallback == nil {
+		} else if node.route.redirectTarget != "" && route.redirectTarget == "" {
 			node.fallback = route
+		} else if node.route.redirectTarget == "" && route.redirectTarget != "" {
+			node.route = route
+			if node.fallback == nil {
+				node.fallback = route
+			}
+		} else {
+			node.route = route
 		}
 	}
 	return root
@@ -404,7 +411,7 @@ func (t *routeTrieNode) match(path string) *routeProxy {
 		node = next
 		if node.route != nil {
 			candidate := node.route
-			if candidate.redirectTarget != "" && candidate.prefix == "/" && normalizedPath != "/" {
+			if candidate.redirectTarget != "" && normalizedPath != "/" && node.fallback != nil {
 				candidate = node.fallback
 			}
 			if candidate != nil {
