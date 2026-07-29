@@ -635,8 +635,11 @@ func Validate(cfg *Config) error {
 		redirectRaw := strings.TrimSpace(r.Redirect)
 		hasHandler := handlerRaw != ""
 		hasRedirect := redirectRaw != ""
-		if hasHandler == hasRedirect {
-			return fmt.Errorf("exactly one of handler or redirect must be set for path %q", prefix)
+		if !hasHandler && !hasRedirect {
+			return fmt.Errorf("either handler or redirect must be set for path %q", prefix)
+		}
+		if hasHandler && hasRedirect {
+			return fmt.Errorf("handler and redirect cannot both be set for path %q", prefix)
 		}
 
 		scheme := ""
@@ -663,7 +666,14 @@ func Validate(cfg *Config) error {
 		}
 		if hasRedirect {
 			u, err := url.Parse(redirectRaw)
-			if err != nil || u.Scheme == "" || u.Host == "" {
+			if err != nil {
+				return fmt.Errorf("invalid redirect for path %q: %q", prefix, r.Redirect)
+			}
+			if u.Scheme == "" && u.Host == "" {
+				if strings.TrimSpace(u.Path) == "" {
+					return fmt.Errorf("invalid redirect for path %q: %q", prefix, r.Redirect)
+				}
+			} else if u.Scheme == "" || u.Host == "" {
 				return fmt.Errorf("invalid redirect for path %q: %q", prefix, r.Redirect)
 			}
 			if r.AbortiveClose {

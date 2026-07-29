@@ -57,13 +57,9 @@ const sourceConfigSchemaJSON = `{
             "type": "string",
             "minLength": 1
           },
-          "rewrite_host": {
-            "type": "string",
-            "minLength": 1
-          },
           "redirect": {
             "type": "string",
-            "pattern": "^[A-Za-z][A-Za-z0-9+.-]*://.+"
+            "minLength": 1
           },
           "allowed_ipv4": {
             "type": "array",
@@ -183,7 +179,7 @@ const runtimeConfigSchemaJSON = `{
           },
           "redirect": {
             "type": "string",
-            "pattern": "^[A-Za-z][A-Za-z0-9+.-]*://.+"
+            "minLength": 1
           },
           "websocket_handler": {
             "type": "object",

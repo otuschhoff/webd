@@ -1,6 +1,9 @@
 package server
 
-import "testing"
+import (
+	"net/http/httputil"
+	"testing"
+)
 
 func TestRouteTrieMatch_LongestPrefixWins(t *testing.T) {
 	routes := []routeProxy{
@@ -47,6 +50,24 @@ func TestRouteTrieMatch_NoRootRouteReturnsNil(t *testing.T) {
 
 	if got := trie.match("/no-match"); got != nil {
 		t.Fatalf("match(/no-match) = %q, want nil", got.prefix)
+	}
+}
+
+func TestRouteTrieMatch_RedirectAndFallbackRoutesCoexist(t *testing.T) {
+	routes := []routeProxy{
+		{prefix: "/", redirectTarget: "/polarion"},
+		{prefix: "/", proxy: &httputil.ReverseProxy{}},
+	}
+	trie := buildRouteTrie(routes)
+
+	rootRoute := trie.match("/")
+	if rootRoute == nil || rootRoute.redirectTarget != "/polarion" {
+		t.Fatalf("match(/) = %#v, want redirect route for /", rootRoute)
+	}
+
+	fallbackRoute := trie.match("/foo")
+	if fallbackRoute == nil || fallbackRoute.proxy == nil {
+		t.Fatalf("match(/foo) = %#v, want fallback proxy route", fallbackRoute)
 	}
 }
 

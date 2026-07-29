@@ -109,12 +109,22 @@ func Validate(cfg *Config) error {
 		redirect := strings.TrimSpace(r.Redirect)
 		hasRedirect := redirect != ""
 		hasHandler := r.Handler != nil
-		if hasRedirect == hasHandler {
-			return fmt.Errorf("exactly one of handler or redirect must be set for path %q", prefix)
+		if !hasHandler && !hasRedirect {
+			return fmt.Errorf("either handler or redirect must be set for path %q", prefix)
+		}
+		if hasHandler && hasRedirect {
+			return fmt.Errorf("handler and redirect cannot both be set for path %q", prefix)
 		}
 		if hasRedirect {
 			u, err := url.Parse(redirect)
-			if err != nil || u.Scheme == "" || u.Host == "" {
+			if err != nil {
+				return fmt.Errorf("invalid redirect for path %q: %q", prefix, r.Redirect)
+			}
+			if u.Scheme == "" && u.Host == "" {
+				if strings.TrimSpace(u.Path) == "" {
+					return fmt.Errorf("invalid redirect for path %q: %q", prefix, r.Redirect)
+				}
+			} else if u.Scheme == "" || u.Host == "" {
 				return fmt.Errorf("invalid redirect for path %q: %q", prefix, r.Redirect)
 			}
 		}

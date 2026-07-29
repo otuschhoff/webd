@@ -42,8 +42,10 @@ type routeSet struct {
 }
 
 type routeTrieNode struct {
-	route    *routeProxy
-	children map[byte]*routeTrieNode
+	route     *routeProxy
+	fallback  *routeProxy
+	prefixLen int
+	children  map[byte]*routeTrieNode
 }
 
 const (
@@ -372,23 +374,40 @@ func buildRouteTrie(routes []routeProxy) *routeTrieNode {
 			ch := prefix[j]
 			next := node.children[ch]
 			if next == nil {
-				next = &routeTrieNode{children: make(map[byte]*routeTrieNode)}
+				next = &routeTrieNode{children: make(map[byte]*routeTrieNode), prefixLen: j + 1}
 				node.children[ch] = next
 			}
 			node = next
 		}
 		route := &routes[i]
-		node.route = route
+		node.route, node.fallback = mergeRouteNodeEntry(node.route, node.fallback, route)
 	}
 	return root
+}
+
+func mergeRouteNodeEntry(current, fallback *routeProxy, incoming *routeProxy) (*routeProxy, *routeProxy) {
+	if current == nil {
+		return incoming, nil
+	}
+	if incoming == nil {
+		return current, fallback
+	}
+	if current.redirectTarget != "" && incoming.redirectTarget == "" {
+		return current, incoming
+	}
+	if current.redirectTarget == "" && incoming.redirectTarget != "" {
+		return incoming, current
+	}
+	return incoming, fallback
 }
 
 func (t *routeTrieNode) match(path string) *routeProxy {
 	if t == nil {
 		return nil
 	}
+
 	node := t
-	matched := node.route
+	matched := (*routeProxy)(nil)
 	for i := 0; i < len(path); i++ {
 		next := node.children[path[i]]
 		if next == nil {
@@ -396,7 +415,13 @@ func (t *routeTrieNode) match(path string) *routeProxy {
 		}
 		node = next
 		if node.route != nil {
-			matched = node.route
+			candidate := node.route
+			if node.fallback != nil && candidate.redirectTarget != "" && path != "/" && node.prefixLen < len(path) {
+				candidate = node.fallback
+			}
+			if candidate != nil {
+				matched = candidate
+			}
 		}
 	}
 	return matched
