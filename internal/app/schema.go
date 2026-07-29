@@ -258,6 +258,10 @@ const runtimeConfigSchemaJSON = `{
           "rewrite_base_href": {
             "type": "boolean"
           },
+          "rewrite_host": {
+            "type": "string",
+            "minLength": 1
+          },
           "handler": {
             "type": "object",
             "additionalProperties": false,
