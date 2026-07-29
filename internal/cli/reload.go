@@ -351,7 +351,8 @@ func buildRuntimeConfig(cfg *Config, uid, gid int, stagedCAs map[string]*stagedT
 			}
 		}
 
-		if strings.TrimSpace(route.Redirect) != "" {
+		hasRedirect := strings.TrimSpace(route.Redirect) != ""
+		if hasRedirect {
 			resolved.Routes = append(resolved.Routes, server.Route{
 				Path:              route.Path,
 				AllowedIPv4Ranges: allowedIPv4Ranges,
@@ -359,6 +360,12 @@ func buildRuntimeConfig(cfg *Config, uid, gid int, stagedCAs map[string]*stagedT
 				Redirect:          strings.TrimSpace(route.Redirect),
 				RewriteBaseHref:   rewriteBaseHref,
 			})
+		}
+
+		if strings.TrimSpace(route.Handler) == "" {
+			if !hasRedirect {
+				return nil, fmt.Errorf("route path=%q has neither handler nor redirect", route.Path)
+			}
 			continue
 		}
 
