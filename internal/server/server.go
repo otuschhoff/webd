@@ -42,10 +42,9 @@ type routeSet struct {
 }
 
 type routeTrieNode struct {
-	route     *routeProxy
-	fallback  *routeProxy
-	prefixLen int
-	children  map[byte]*routeTrieNode
+	route    *routeProxy
+	fallback *routeProxy
+	children map[byte]*routeTrieNode
 }
 
 const (
@@ -374,31 +373,19 @@ func buildRouteTrie(routes []routeProxy) *routeTrieNode {
 			ch := prefix[j]
 			next := node.children[ch]
 			if next == nil {
-				next = &routeTrieNode{children: make(map[byte]*routeTrieNode), prefixLen: j + 1}
+				next = &routeTrieNode{children: make(map[byte]*routeTrieNode)}
 				node.children[ch] = next
 			}
 			node = next
 		}
 		route := &routes[i]
-		node.route, node.fallback = mergeRouteNodeEntry(node.route, node.fallback, route)
+		if node.route == nil || node.route.redirectTarget == "" || route.redirectTarget != "" {
+			node.route = route
+		} else if node.fallback == nil {
+			node.fallback = route
+		}
 	}
 	return root
-}
-
-func mergeRouteNodeEntry(current, fallback *routeProxy, incoming *routeProxy) (*routeProxy, *routeProxy) {
-	if current == nil {
-		return incoming, nil
-	}
-	if incoming == nil {
-		return current, fallback
-	}
-	if current.redirectTarget != "" && incoming.redirectTarget == "" {
-		return current, incoming
-	}
-	if current.redirectTarget == "" && incoming.redirectTarget != "" {
-		return incoming, current
-	}
-	return incoming, fallback
 }
 
 func (t *routeTrieNode) match(path string) *routeProxy {
@@ -406,17 +393,18 @@ func (t *routeTrieNode) match(path string) *routeProxy {
 		return nil
 	}
 
+	normalizedPath := normalizeMatchPath(path)
 	node := t
 	matched := (*routeProxy)(nil)
-	for i := 0; i < len(path); i++ {
-		next := node.children[path[i]]
+	for i := 0; i < len(normalizedPath); i++ {
+		next := node.children[normalizedPath[i]]
 		if next == nil {
 			break
 		}
 		node = next
 		if node.route != nil {
 			candidate := node.route
-			if node.fallback != nil && candidate.redirectTarget != "" && path != "/" && node.prefixLen < len(path) {
+			if candidate.redirectTarget != "" && candidate.prefix == "/" && normalizedPath != "/" {
 				candidate = node.fallback
 			}
 			if candidate != nil {
@@ -425,6 +413,23 @@ func (t *routeTrieNode) match(path string) *routeProxy {
 		}
 	}
 	return matched
+}
+
+func normalizeMatchPath(path string) string {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return "/"
+	}
+	if !strings.HasPrefix(trimmed, "/") {
+		trimmed = "/" + trimmed
+	}
+	if trimmed != "/" {
+		trimmed = strings.TrimRight(trimmed, "/")
+		if trimmed == "" {
+			return "/"
+		}
+	}
+	return trimmed
 }
 
 func getOrCreateRouteTransport(cache map[string]http.RoundTripper, handler Handler, forceAttemptHTTP2 bool) (http.RoundTripper, error) {
